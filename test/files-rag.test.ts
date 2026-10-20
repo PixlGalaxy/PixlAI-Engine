@@ -285,3 +285,29 @@ test('rag: a near-copy of an indexed file is skipped; shared chunks are not embe
   assert.equal(embedded.filter((t) => t.includes('brand new closing slide')).length, 1);
   assert.match(result, /"total_chunks": 10/);
 });
+
+test('files: paths the host hides do not exist for the agent', async () => {
+  const { agent, workspace, sink } = setup();
+  // The host's own cache (e.g. converted previews) under TEMP/.cache.
+  workspace.hidden = (path: string) => path === 'TEMP/.cache' || path.startsWith('TEMP/.cache/');
+  await workspace.write('u1', 'TEMP/.cache/preview.pdf', 'cached');
+  await workspace.write('u1', 'TEMP/download.txt', 'kept for the agent');
+  const provider = new ScriptedProvider([
+    () => [
+      ...toolCall('files_list', { path: 'TEMP' }, 'a'),
+      ...toolCall('files_list', { path: '', recursive: true }, 'b'),
+      ...toolCall('files_read', { path: 'TEMP/.cache/preview.pdf' }, 'c'),
+      ...toolCall('files_delete', { path: 'TEMP/.cache' }, 'd'),
+      ...toolCall('files_search', { query: 'preview' }, 'e'),
+    ],
+    () => text('ok'),
+  ]);
+  await agent.run({ runId: 'r-hidden', model: model(provider), history: [user('look in TEMP')], sink });
+  const [list, all, read, del, search] = stepResults(provider, 1);
+  assert.match(list!, /TEMP\/download\.txt/);
+  for (const result of [list, all, search]) assert.doesNotMatch(result!, /\.cache/);
+  assert.match(read!, /Not found/);
+  assert.match(del!, /Not found/);
+  // Still there for the host.
+  assert.ok(await workspace.stat('u1', 'TEMP/.cache/preview.pdf'));
+});

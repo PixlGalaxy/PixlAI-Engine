@@ -1,5 +1,5 @@
 import type { BrowserPort, FetchPort, FetchedPage, SearchPort } from '../ports.js';
-import { asText, cleanPath, RAG_DIR, workspaceOf } from '../tools/files.js';
+import { asText, assertVisible, cleanPath, RAG_DIR, workspaceOf } from '../tools/files.js';
 import { defineTool, type Tool, type ToolContext } from '../tools/tool.js';
 import { htmlToText } from './html.js';
 
@@ -184,6 +184,7 @@ export const webDownload = defineTool<{ url: string; folder?: string }>({
     const ws = workspaceOf(ctx);
     const folder = cleanPath(args.folder ?? 'TEMP/web');
     if (folder === RAG_DIR || folder.startsWith(`${RAG_DIR}/`)) throw new Error(`${RAG_DIR} is managed by the rag_ tools`);
+    assertVisible(ws, folder);
     const page = await fetcherOf(ctx).fetch(httpUrl(args.url), { maxBytes: MAX_DOWNLOAD_BYTES, signal: ctx.signal });
     if (page.status >= 400) return { url: page.url, status: page.status, error: `The site answered ${page.status}` };
     const path = folder ? `${folder}/${nameFor(page)}` : nameFor(page);

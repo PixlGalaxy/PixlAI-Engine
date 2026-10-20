@@ -2,6 +2,12 @@
 
 All notable changes to PixlAI-Engine. Every breaking change is listed under **Breaking**.
 
+## Unreleased
+
+### Added
+
+- **`WorkspacePort.hidden(path)`** (optional): paths the host keeps for itself, such as a cache of converted previews. The files, rag and web tools leave them out of listings and searches and answer "Not found" when the agent names one. `InMemoryWorkspace` has a settable `hidden` to try it. `isHidden` and `assertVisible` help tools of your own do the same.
+
 ## 1.0.2 (2026-10-16)
 
 ### Changed

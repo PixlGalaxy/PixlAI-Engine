@@ -147,6 +147,8 @@ export class InMemoryScheduleStore implements ScheduleStore {
 export class InMemoryWorkspace implements WorkspacePort {
   private files = new Map<string, Map<string, { data: Buffer; modified: Date }>>();
   private dirs = new Map<string, Set<string>>();
+  /** Paths kept out of the agent's file tools; set it to try a host's hidden folders. */
+  hidden?: (path: string) => boolean;
 
   constructor(private limitBytes = 50 * 1024 * 1024, private note = 'Everything here is kept until deleted.') {}
 

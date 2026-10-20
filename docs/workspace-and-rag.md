@@ -62,6 +62,7 @@ interface WorkspacePort {
   move(userId: string, from: string, to: string): Promise<void>;
   delete(userId: string, path: string): Promise<void>;
   usage(userId: string): Promise<StorageArea[]>;
+  hidden?(path: string): boolean;
 }
 ```
 
@@ -76,6 +77,7 @@ interface WorkspacePort {
 | `move` | Rename or move, across areas too |
 | `delete` | Folders go with their contents |
 | `usage` | One `StorageArea` per area: `{ name, usedBytes, limitBytes, note? }`. `note` is a rule for the model, e.g. "files here are deleted 24 h after their last change". |
+| `hidden` | Optional. `true` for paths you keep for yourself (a cache of converted previews, say). The files, rag and web tools leave them out of every listing and search, and answer "Not found" when the agent names one, so to the agent they do not exist. Include the folder itself and everything under it. |
 
 Areas are your choice. StudyHawk maps `TEMP/...` to a second directory with its
 own 10 GB quota and a sweeper that deletes each file 24 hours after its last
