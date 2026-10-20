@@ -28,6 +28,7 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 | `toProviderMessages(messages)` | Adds the out-of-band marker to steers before a provider call (the loop does this; use it if you call a provider yourself). |
 | `estimateTokens`, `COMPACT_THRESHOLD` | The size estimate (4 characters per token) and the 0.75 threshold compaction uses. |
 | `compactHistory(history, model, signal, keep?)` | Compaction on demand (a "compact" button): summarizes all but the newest messages; returns `{ summary, keepFrom }` for the host to store, or null when there is too little. |
+| `SUMMARY_PREFIX` | The line a compaction summary starts with, to recognize one in a stored history. |
 | `ReasoningLevel` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`: `RunOptions.reasoning` passes it to `ModelRequest.reasoning`; providers map it to their own setting. |
 
 ## Events
@@ -48,8 +49,12 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 | `ToolRegistry` | The list of tools a run offers (`get`, `list`, `filter`). |
 | `BUILTIN_TOOLS` | `time_now`, `memory_update`, `skills_load`, `skills_note`. |
 | `CORE_TOOLS`, `askUser`, `calc`, `notify`, `planUpdate` | Core tools; `evaluate(expression)` is the safe calculator behind `calc`. |
+| `questionsAsText(questions)` | `ask_user` questions as plain text: what the conversation keeps, for clients that cannot show choices. |
+| `DISPLAY_TOOLS`, `showHtml` | `show_html`, offered with `EngineOptions.displays: ['html']`. |
+| `toolsLoad`, `inGroup(group, tools)`, `toolSummary(tool)`, `ENGINE_GROUP_NOTES` | Lazy tool groups: the `tools_load` tool, a group's tools, a tool's one-line summary, and the engine packs' lines in the list of groups. [Tools](tools.md) |
 | `CRON_TOOLS`, `SCHEDULED_RUN_NOTE` | `cron_create/list/update/delete`, and the note added to scheduled runs. |
 | `FILES_TOOLS`, `cleanPath`, `RAG_DIR` | The files pack (needs a workspace) and its path rules. [Workspace and RAG](workspace-and-rag.md) |
+| `isHidden(workspace, path)`, `assertVisible(workspace, path)` | Whether a path is one the host hides (`WorkspacePort.hidden`), and the "Not found" check the built-in tools use, for tools of your own. |
 | `RAG_TOOLS`, `UserRags`, `chunkPages`, `ragId`, `RagManifest`, `RagSource`, `Chunk` | The RAG pack and its storage helpers. |
 | `CODE_TOOLS`, `codeRun`, `clipMiddle` | `code_run` over a `SandboxPort`. [Code, web and browser](code-web-browser.md) |
 | `WEB_TOOLS`, `webSearch`, `webFetch`, `webDownload`, `htmlToText`, `decodeEntities` | The web pack and its HTML-to-text helpers. |
