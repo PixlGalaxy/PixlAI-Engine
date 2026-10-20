@@ -1,5 +1,5 @@
 import type { EmbeddingPort, FileEntry } from '../ports.js';
-import { cleanPath, readableText, walk, workspaceOf } from '../tools/files.js';
+import { assertVisible, cleanPath, readableText, walk, workspaceOf } from '../tools/files.js';
 import { defineTool, type Tool, type ToolContext } from '../tools/tool.js';
 import { chunkPages, loadShared, normalize, ragId, search, UserRags, type Hit, type RagIndex } from './store.js';
 
@@ -125,6 +125,7 @@ export const ragAdd = defineTool<{ rag: string; paths: string[] }>({
     const files: FileEntry[] = [];
     for (const raw of Array.isArray(args.paths) ? args.paths : []) {
       const path = cleanPath(raw);
+      assertVisible(ws, path);
       const stat = await ws.stat(ctx.user.id, path);
       if (!stat) throw new Error(`Not found: ${path}`);
       if (stat.type === 'dir') files.push(...(await walk(ws, ctx.user.id, path, MAX_FILES_PER_ADD + 1)));

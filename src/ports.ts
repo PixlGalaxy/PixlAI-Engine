@@ -127,6 +127,11 @@ export interface WorkspacePort {
   /** Folders are deleted with their contents. */
   delete(userId: string, path: string): Promise<void>;
   usage(userId: string): Promise<StorageArea[]>;
+  /**
+   * Optional: paths the host keeps for itself (its own caches). The file tools neither list nor open them,
+   * so to the agent they do not exist.
+   */
+  hidden?(path: string): boolean;
 }
 
 /** Turns documents into text. Return null for formats it does not handle. */

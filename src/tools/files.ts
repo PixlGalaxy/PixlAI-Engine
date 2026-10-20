@@ -32,6 +32,16 @@ function assertNotRag(path: string): void {
   }
 }
 
+/** Whether the host keeps this path (or a folder above it) out of the agent's sight. */
+export function isHidden(ws: WorkspacePort, path: string): boolean {
+  return ws.hidden?.(path) ?? false;
+}
+
+/** A hidden path answers like a missing one: the agent never learns it is there. */
+export function assertVisible(ws: WorkspacePort, path: string): void {
+  if (isHidden(ws, path)) throw new Error(`Not found: ${path}`);
+}
+
 /** Text when the bytes look like UTF-8 text, else null. */
 export function asText(data: Buffer): string | null {
   const sample = data.subarray(0, 8000);
@@ -44,6 +54,7 @@ export function asText(data: Buffer): string | null {
 
 /** Readable text of any file: plain text directly, documents through the host's extractor. */
 export async function readableText(ctx: ToolContext, path: string): Promise<{ pages: string[] } | null> {
+  assertVisible(workspaceOf(ctx), path);
   const data = await workspaceOf(ctx).read(ctx.user.id, path);
   // The extractor knows document formats (and their pages) better than a text guess; plain text is the fallback.
   const extracted = ctx.extractor ? await ctx.extractor.extract(data, path.split('/').pop() ?? path) : null;
@@ -59,6 +70,7 @@ export async function walk(ws: WorkspacePort, userId: string, path: string, max:
   while (stack.length && out.length < max) {
     const dir = stack.pop()!;
     for (const entry of await ws.list(userId, dir)) {
+      if (isHidden(ws, entry.path)) continue;
       if (entry.type === 'dir') {
         if (entry.path !== RAG_DIR) stack.push(entry.path);
       } else if (out.length < max) out.push(entry);
@@ -79,9 +91,10 @@ export const filesList = defineTool<{ path?: string; recursive?: boolean }>({
   async run(args, ctx) {
     const ws = workspaceOf(ctx);
     const path = cleanPath(args.path);
+    assertVisible(ws, path);
     const entries = args.recursive ? await walk(ws, ctx.user.id, path, MAX_LIST) : await ws.list(ctx.user.id, path);
     return entries
-      .filter((e) => e.path !== RAG_DIR)
+      .filter((e) => e.path !== RAG_DIR && !isHidden(ws, e.path))
       .slice(0, MAX_LIST)
       .map((e) => ({ path: e.path, type: e.type, size: e.size, modified: e.modifiedAt }));
   },
@@ -145,6 +158,7 @@ export const filesWrite = defineTool<{ path: string; content: string; append?: b
     const path = cleanPath(args.path);
     if (!path) throw new Error('path is required');
     assertNotRag(path);
+    assertVisible(workspaceOf(ctx), path);
     const content = String(args.content ?? '');
     if (Buffer.byteLength(content) > MAX_WRITE_BYTES) throw new Error('content is larger than 1 MB; write it in parts with append');
     await workspaceOf(ctx).write(ctx.user.id, path, content, { append: args.append === true });
@@ -162,6 +176,7 @@ export const filesMkdir = defineTool<{ path: string }>({
     const path = cleanPath(args.path);
     if (!path) throw new Error('path is required');
     assertNotRag(path);
+    assertVisible(workspaceOf(ctx), path);
     await workspaceOf(ctx).mkdir(ctx.user.id, path);
     return { created: true, path };
   },
@@ -179,6 +194,8 @@ export const filesMove = defineTool<{ from: string; to: string }>({
     if (!from || !to) throw new Error('from and to are required');
     assertNotRag(from);
     assertNotRag(to);
+    assertVisible(workspaceOf(ctx), from);
+    assertVisible(workspaceOf(ctx), to);
     await workspaceOf(ctx).move(ctx.user.id, from, to);
     return { moved: true, from, to };
   },
@@ -194,6 +211,7 @@ export const filesDelete = defineTool<{ path: string }>({
     const path = cleanPath(args.path);
     if (!path) throw new Error('Refusing to delete the whole workspace');
     assertNotRag(path);
+    assertVisible(workspaceOf(ctx), path);
     await workspaceOf(ctx).delete(ctx.user.id, path);
     return { deleted: true, path };
   },
@@ -213,6 +231,7 @@ export const filesSearch = defineTool<{ query: string; path?: string; in_content
     const ws = workspaceOf(ctx);
     const query = String(args.query ?? '').trim().toLowerCase();
     if (!query) throw new Error('query is empty');
+    assertVisible(ws, cleanPath(args.path));
     const files = await walk(ws, ctx.user.id, cleanPath(args.path), MAX_SEARCH_FILES);
     const hits: { path: string; line?: number; text?: string }[] = [];
     for (const file of files) {

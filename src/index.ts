@@ -8,7 +8,7 @@ export { ENGINE_GROUP_NOTES, inGroup, toolSummary, toolsLoad } from './tools/gro
 export { applyOperations, DOC_FILES, ENTRY_SEPARATOR, entriesOf, memoryUpdate } from './tools/memory.js';
 export { CORE_TOOLS, askUser, calc, notify, planUpdate } from './tools/core.js';
 export { evaluate } from './tools/calc.js';
-export { FILES_TOOLS, RAG_DIR, cleanPath } from './tools/files.js';
+export { FILES_TOOLS, RAG_DIR, assertVisible, cleanPath, isHidden } from './tools/files.js';
 export { RAG_TOOLS } from './rag/tools.js';
 export { CODE_TOOLS, codeRun, clipMiddle } from './tools/code.js';
 export { WEB_TOOLS, webDownload, webFetch, webSearch } from './web/tools.js';
