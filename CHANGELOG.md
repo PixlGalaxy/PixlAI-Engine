@@ -6,6 +6,8 @@ All notable changes to PixlAI-Engine. Every breaking change is listed under **Br
 
 ### Changed
 
+- **`show_html` or a file, never both.** The description now tells the agent that a page to keep, reuse or download, or a long one (a quiz with many questions), goes to a `.html` file with `files_write` and a link, and that `show_html` is for a quick demo used right now: agents were showing a page and saving the same page, so the user saw it twice.
+
 - **`ask_user` recommends only when it means it, and never in a quiz.** A recommendation is now an option's `recommended` flag (show it as a badge) instead of " (Recommended)" in the label, and the description tells the agent most questions have none. `quiz: true`, or a header that names a quiz or practice, hides any recommendation, drops descriptions that grade an option ("correct", "wrong") and shuffles the options: before, practice questions marked their right answer as recommended and listed it first. A "(Recommended)" still written in a label becomes the flag.
 
 ### Added

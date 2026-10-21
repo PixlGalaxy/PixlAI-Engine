@@ -23,7 +23,10 @@ export const showHtml = defineTool<{ title: string; html: string }>({
     '- Keep it small and correct: test the math in your head, avoid infinite loops, and start in a meaningful state.\n' +
     '- Forms, pop-ups, storage and links that navigate do not work there; keep everything in the page.\n' +
     'After calling it, say in a sentence or two what the page shows and how to use it. Do not use it for plain text, ' +
-    'tables or code the user should copy (write those in your answer), or for files to keep (use files_write).',
+    'tables or code the user should copy (write those in your answer).\n' +
+    'Show a page or save it as a file, never both: the user would see it twice. A page to keep, reuse or download, or a ' +
+    'long one (a quiz with many questions, a study guide), goes to a .html file with files_write and a link to it ' +
+    'instead; the user opens it full screen from its card. show_html is for a quick demo used right now.',
   parameters: {
     type: 'object',
     properties: {
