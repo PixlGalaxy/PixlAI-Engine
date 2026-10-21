@@ -4,6 +4,10 @@ All notable changes to PixlAI-Engine. Every breaking change is listed under **Br
 
 ## Unreleased
 
+### Changed
+
+- **`ask_user` recommends only when it means it, and never in a quiz.** A recommendation is now an option's `recommended` flag (show it as a badge) instead of " (Recommended)" in the label, and the description tells the agent most questions have none. `quiz: true`, or a header that names a quiz or practice, hides any recommendation, drops descriptions that grade an option ("correct", "wrong") and shuffles the options: before, practice questions marked their right answer as recommended and listed it first. A "(Recommended)" still written in a label becomes the flag.
+
 ### Added
 
 - **`WorkspacePort.hidden(path)`** (optional): paths the host keeps for itself, such as a cache of converted previews. The files, rag and web tools leave them out of listings and searches and answer "Not found" when the agent names one. `InMemoryWorkspace` has a settable `hidden` to try it. `isHidden` and `assertVisible` help tools of your own do the same.
