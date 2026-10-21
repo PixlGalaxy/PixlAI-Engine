@@ -59,22 +59,56 @@ const MAX_QUESTIONS = 4;
 /** Clean, bounded text from a model argument. */
 const clip = (value: unknown, max: number): string => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
+/** A recommendation models still write into the label out of habit: " (Recommended)", "(recomendado)". */
+const RECOMMENDED_SUFFIX = /\s*[([](recommended|recomendad[oa]|recomendación)[)\]]\s*$/i;
+
+/** A header that names a test of knowledge, in case the model forgot `quiz`. */
+const QUIZ_HEADER = /quiz|practice|exam|test|flashcard|review question|question \d|práctica|practica|examen|prueba|pregunta \d|repaso/i;
+
+/** Words that grade an option, which a quiz must not show before the user answers. */
+const GRADING = /\b(correct|incorrect|right answer|wrong|true answer)\b|correct[ao]|incorrect[ao]|respuesta (correcta|buena)/i;
+
+/** Fisher-Yates: the answer's place says nothing about it. */
+function shuffled<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
 /** Checks the questions the model wrote; throws a message it can fix. */
 function questionsFrom(raw: unknown): UserQuestion[] {
   if (!Array.isArray(raw) || raw.length === 0) throw new Error('questions must be a list of 1 to 4 questions');
   if (raw.length > MAX_QUESTIONS) throw new Error(`Ask at most ${MAX_QUESTIONS} questions at once`);
   return raw.map((q, i) => {
-    const item = (q ?? {}) as { question?: unknown; header?: unknown; options?: unknown; multi_select?: unknown };
+    const item = (q ?? {}) as { question?: unknown; header?: unknown; options?: unknown; multi_select?: unknown; quiz?: unknown };
     const question = clip(item.question, 300);
     if (!question) throw new Error(`Question ${i + 1} has no text`);
-    const options = (Array.isArray(item.options) ? item.options : [])
-      .map((o) => ({ label: clip((o as { label?: unknown })?.label, 60), description: clip((o as { description?: unknown })?.description, 200) }))
-      .filter((o) => o.label)
-      .map((o) => (o.description ? o : { label: o.label }));
-    if (options.length < 2 || options.length > 4) throw new Error(`Question ${i + 1} needs 2 to 4 options (the user can always write their own answer)`);
-    if (new Set(options.map((o) => o.label.toLowerCase())).size !== options.length) throw new Error(`Question ${i + 1} repeats an option`);
     const header = clip(item.header, 24);
-    return { question, ...(header && { header }), options, ...(item.multi_select === true && { multiSelect: true }) };
+    // A quiz never hints at its answer: no recommendation, and the options in a random order.
+    const quiz = item.quiz === true || QUIZ_HEADER.test(header);
+    let recommendedSeen = false;
+    const parsed = (Array.isArray(item.options) ? item.options : [])
+      .map((o) => {
+        const raw = (o ?? {}) as { label?: unknown; description?: unknown; recommended?: unknown };
+        const text = clip(raw.label, 80);
+        const label = clip(text.replace(RECOMMENDED_SUFFIX, ''), 60);
+        const flagged = raw.recommended === true || RECOMMENDED_SUFFIX.test(text);
+        // At most one per question, and none in a quiz.
+        const recommended = flagged && !quiz && !recommendedSeen;
+        if (recommended) recommendedSeen = true;
+        const written = clip(raw.description, 200);
+        // In a quiz, a description that grades the option ("correct", "wrong") would give the answer away.
+        const description = quiz && GRADING.test(written) ? '' : written;
+        return { label, ...(description && { description }), ...(recommended && { recommended: true }) };
+      })
+      .filter((o) => o.label);
+    if (parsed.length < 2 || parsed.length > 4) throw new Error(`Question ${i + 1} needs 2 to 4 options (the user can always write their own answer)`);
+    if (new Set(parsed.map((o) => o.label.toLowerCase())).size !== parsed.length) throw new Error(`Question ${i + 1} repeats an option`);
+    const options = quiz ? shuffled(parsed) : parsed;
+    return { question, ...(header && { header }), options, ...(item.multi_select === true && { multiSelect: true }), ...(quiz && { quiz: true }) };
   });
 }
 
@@ -83,7 +117,7 @@ export function questionsAsText(questions: UserQuestion[]): string {
   const lines = [questions.length === 1 ? 'Before I continue, one question:' : 'Before I continue, a few questions:', ''];
   questions.forEach((q, i) => {
     lines.push(`${questions.length > 1 ? `${i + 1}. ` : ''}${q.header ? `**${q.header}:** ` : ''}${q.question}${q.multiSelect ? ' (pick any)' : ''}`);
-    for (const o of q.options) lines.push(`   - ${o.label}${o.description ? `: ${o.description}` : ''}`);
+    for (const o of q.options) lines.push(`   - ${o.label}${o.recommended ? ' (recommended)' : ''}${o.description ? `: ${o.description}` : ''}`);
   });
   return lines.join('\n');
 }
@@ -111,7 +145,11 @@ export const askUser = defineTool<{ question?: string; questions?: unknown }>({
     '- Ask everything you need at once (1 to 4 questions), not one question per turn.\n' +
     '- Give each question 2 to 4 options that are clearly different. Labels are short (1-5 words); the description says ' +
     'what choosing it means or its trade-off.\n' +
-    '- Put the option you recommend first and add " (Recommended)" to its label.\n' +
+    '- Only when one option is clearly best for this user (you know their situation), set recommended: true on it; it ' +
+    'shows as a badge. Most questions have no recommendation. Never write "(Recommended)" in a label.\n' +
+    '- Practice questions, quizzes and exam review that test what the user knows: set quiz: true. It hides any ' +
+    'recommendation and shuffles the options, so neither a badge nor the order gives the answer away. Check their ' +
+    'answers when they reply, and say which were right.\n' +
     '- Never add an "Other" option: the user can always write their own answer.\n' +
     '- Set multi_select when several options can be picked together (e.g. which topics to include).\n' +
     '- header is a 1-3 word tag for the question, e.g. "Format" or "Due date".\n' +
@@ -130,17 +168,19 @@ export const askUser = defineTool<{ question?: string; questions?: unknown }>({
             header: { type: 'string', description: 'A 1-3 word tag, e.g. "Format"' },
             options: {
               type: 'array',
-              description: '2 to 4 options; the recommended one first',
+              description: '2 to 4 options',
               items: {
                 type: 'object',
                 properties: {
                   label: { type: 'string', description: '1-5 words' },
-                  description: { type: 'string', description: 'What choosing it means, or its trade-off' },
+                  description: { type: 'string', description: 'What choosing it means, or its trade-off (in a quiz, leave it out: it would hint)' },
+                  recommended: { type: 'boolean', description: 'The one option you advise, only when one is clearly best; never in a quiz' },
                 },
                 required: ['label'],
               },
             },
             multi_select: { type: 'boolean', description: 'The user may pick several options' },
+            quiz: { type: 'boolean', description: 'The question tests what the user knows (practice, quiz, exam review): no recommendation, options shuffled' },
           },
           required: ['question', 'options'],
         },

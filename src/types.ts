@@ -167,6 +167,8 @@ export type EngineEvent =
 export interface UserQuestionOption {
   label: string;
   description?: string;
+  /** The option the agent advises (at most one per question; never in a quiz). Show it as a badge. */
+  recommended?: boolean;
 }
 
 /** A question the agent asks with choices; the user can always answer in their own words too. */
@@ -177,6 +179,8 @@ export interface UserQuestion {
   options: UserQuestionOption[];
   /** The user may pick several options. */
   multiSelect?: boolean;
+  /** It tests what the user knows (practice, a quiz): no option is recommended and their order is shuffled. */
+  quiz?: boolean;
 }
 
 /**

@@ -90,7 +90,7 @@ The sink receives these `EngineEvent` values in order. `sink.emit` is awaited by
 | `usage` | The provider reported token usage | `input_tokens`, `output_tokens` |
 | `context` | Before each model call of a top-level run | `used` (estimated prompt tokens, about 1,000 per image), `window` (`model.contextWindow`). Compaction starts at 75%. |
 | `notice` | The model cannot use tools but tools exist | `message` |
-| `questions` | `ask_user` was called with options, just before the run ends | `questions: UserQuestion[]` (`question`, `header?`, `options: { label, description? }[]`, `multiSelect?`) |
+| `questions` | `ask_user` was called with options, just before the run ends | `questions: UserQuestion[]` (`question`, `header?`, `options: { label, description?, recommended? }[]`, `multiSelect?`, `quiz?`) |
 | `display` | `show_html` showed a page (the HTML itself is in `RunResult.displays`) | `kind: 'html'`, `title` |
 | `plan` | `plan_update` ran. Each event replaces the previous plan. | `title?` (a short name for the plan) and `steps: { title, status }[]` with status `pending`, `in_progress`, `done` or `skipped` |
 | `notify` | `notify` ran. Hosts may turn it into a push notification. | `title`, `body`, `url?` |

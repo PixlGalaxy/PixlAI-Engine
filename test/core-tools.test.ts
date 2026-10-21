@@ -116,9 +116,40 @@ test('ask_user with options: the questions come back structured, and as text for
   assert.equal(result.awaitingUser, true);
   assert.equal(result.questions?.length, 2);
   assert.deepEqual(result.questions?.[1], { question: 'Which chapters?', header: 'Chapters', multiSelect: true, options: [{ label: 'Ch 4' }, { label: 'Ch 5' }, { label: 'Ch 6' }] });
-  assert.match(result.content, /\*\*Format:\*\* Which format do you want\?[\s\S]*- Flashcards \(Recommended\): Quick review[\s\S]*\(pick any\)/);
+  // "(Recommended)" written in a label becomes the flag, and the label is clean.
+  assert.deepEqual(result.questions?.[0]?.options[0], { label: 'Flashcards', description: 'Quick review', recommended: true });
+  assert.match(result.content, /\*\*Format:\*\* Which format do you want\?[\s\S]*- Flashcards \(recommended\): Quick review[\s\S]*\(pick any\)/);
   assert.ok(events.some((e) => e.type === 'questions' && e.questions.length === 2));
   assert.equal(provider.requests.length, 1);
+});
+
+test('ask_user in a quiz never gives the answer away: no recommendation, no grading hint, shuffled options', async () => {
+  const { agent, sink } = setup();
+  const options = [
+    { label: 'Jupiter (Recommended)', description: 'Correct: the largest planet', recommended: true },
+    { label: 'Mars', description: 'A rocky planet' },
+    { label: 'Venus' },
+    { label: 'Saturn' },
+  ];
+  const firsts = new Set<string>();
+  for (let i = 0; i < 25; i++) {
+    const provider = new ScriptedProvider([() => toolCall('ask_user', { questions: [{ question: 'Which planet is the largest?', quiz: true, options }] }), () => text('x')]);
+    const result = await agent.run({ runId: `q${i}`, model: model(provider), history: [user('quiz me')], sink });
+    const q = result.questions![0]!;
+    assert.equal(q.quiz, true);
+    assert.ok(q.options.every((o) => !o.recommended));
+    const jupiter = q.options.find((o) => o.label === 'Jupiter')!;
+    assert.equal(jupiter.description, undefined);
+    assert.equal(q.options.find((o) => o.label === 'Mars')!.description, 'A rocky planet');
+    firsts.add(q.options[0]!.label);
+  }
+  // The right answer does not always sit first.
+  assert.ok(firsts.size > 1);
+
+  // A header that names a quiz counts as one even without quiz: true.
+  const provider = new ScriptedProvider([() => toolCall('ask_user', { questions: [{ question: 'Capital of Australia?', header: 'Practice', options: [{ label: 'Canberra', recommended: true }, { label: 'Sydney' }] }] }), () => text('x')]);
+  const result = await agent.run({ runId: 'q-header', model: model(provider), history: [user('quiz me')], sink });
+  assert.ok(result.questions![0]!.options.every((o) => !o.recommended));
 });
 
 test('ask_user refuses questions the user could not answer well, so the model fixes them', async () => {
