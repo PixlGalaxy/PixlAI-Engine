@@ -169,8 +169,13 @@ class FakeBrowser implements BrowserPort {
     this.actions.push(action);
     return this.page(this.pages.get(profile)!);
   }
-  async screenshot() {
+  shots: { highlight?: string; jpeg?: boolean }[] = [];
+  async screenshot(_u: string, _p: string, _s: AbortSignal, options: { highlight?: string; jpeg?: boolean } = {}) {
+    this.shots.push(options);
     return { path: 'TEMP/screenshots/page.png' };
+  }
+  async element(_u: string, _p: string, ref: string) {
+    return ref === '@e1' ? { role: 'button', label: 'Submit', password: false } : ref === '@e3' ? { role: 'textbox', label: 'Password', password: true } : null;
   }
   async currentUrl(_u: string, profile: string) {
     return this.pages.get(profile) ?? null;
@@ -203,7 +208,11 @@ test('browser: reading is free, actions follow the policy (allow, approve, block
   ]);
   const run = agent.run({ runId: 'r1', model: model(p), history: [user('do it')], sink });
   while (stores.runs.created.length === 0) await tick();
-  assert.equal(stores.runs.created[0]!.summary, 'Click @e1 in the browser');
+  // The approval names the element and the site, and shows the page with the element outlined.
+  assert.equal(stores.runs.created[0]!.summary, 'Click "Submit" (button) on shop.example');
+  assert.deepEqual(stores.runs.created[0]!.details, { page: 'shop.example', element: 'button "Submit"' });
+  assert.equal(stores.runs.created[0]!.image, 'TEMP/screenshots/page.png');
+  assert.deepEqual(browser.shots.at(-1), { jpeg: true, highlight: '@e1' });
   stores.runs.decide(stores.runs.created[0]!.id, 'approved');
   await run;
 
@@ -233,6 +242,20 @@ test('browser: scheduled runs may only do what the policy allows outright; brows
   assert.ok(names.includes('browser_open'));
   const subagentTools = agent.tools().filter((t) => t.sideEffect === 'none' && !t.mainAgentOnly).map((t) => t.name);
   assert.ok(!subagentTools.some((n) => n.startsWith('browser_')));
+});
+
+test('browser: an approval to type a password shows dots, never the password', async () => {
+  const browser = new FakeBrowser();
+  await browser.open('u1', 'default', 'https://login.example/sign-in');
+  const { agent, stores, sink } = setup({ browser });
+  const p = new ScriptedProvider([() => toolCall('browser_type', { ref: '@e3', text: 'hunter2' }, 'a'), () => text('ok')]);
+  const run = agent.run({ runId: 'r1', model: model(p), history: [user('x')], sink });
+  while (stores.runs.created.length === 0) await tick();
+  const approval = stores.runs.created[0]!;
+  assert.equal(approval.summary, 'Type into "Password" (textbox) on login.example');
+  assert.deepEqual(approval.details, { page: 'login.example/sign-in', field: 'textbox "Password"', text: '•••••••' });
+  stores.runs.decide(approval.id, 'rejected');
+  await run;
 });
 
 test('browser: without a policy every action asks', async () => {

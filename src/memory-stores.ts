@@ -24,7 +24,7 @@ export class InMemoryRunStore implements RunStore {
   private watchers = new Map<string, Set<() => void>>();
   private approvals = new Map<string, { decision?: ApprovalDecision; waiters: ((d: ApprovalDecision) => void)[] }>();
   /** Every approval created, newest last (handy in tests). */
-  readonly created: { id: string; runId: string; toolName: string; summary: string }[] = [];
+  readonly created: { id: string; runId: string; toolName: string; summary: string; details?: Record<string, string>; image?: string }[] = [];
 
   /** Host side: the user sent a correction. */
   steer(runId: string, content: string): PendingSteer {
@@ -57,10 +57,10 @@ export class InMemoryRunStore implements RunStore {
     return () => set.delete(onSteer);
   }
 
-  async createApproval(input: { runId: string; toolName: string; summary: string }): Promise<{ id: string }> {
+  async createApproval(input: { runId: string; toolName: string; summary: string; details?: Record<string, string>; image?: string }): Promise<{ id: string }> {
     const id = randomUUID();
     this.approvals.set(id, { waiters: [] });
-    this.created.push({ id, runId: input.runId, toolName: input.toolName, summary: input.summary });
+    this.created.push({ id, runId: input.runId, toolName: input.toolName, summary: input.summary, details: input.details, ...(input.image && { image: input.image }) });
     return { id };
   }
 

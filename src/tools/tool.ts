@@ -87,6 +87,8 @@ export type GateContext = Pick<ToolContext, 'user' | 'runKind' | 'host' | 'brows
 export interface ApprovalText {
   summary: string;
   details?: Record<string, string>;
+  /** A workspace picture of what will happen, e.g. the page with the element to click outlined. */
+  image?: string;
 }
 
 export interface SubagentOutcome {

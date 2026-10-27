@@ -24,6 +24,8 @@ export interface RunStore {
     args: Record<string, unknown>;
     summary: string;
     details: Record<string, string>;
+    /** A workspace picture of what will happen (the page with the element outlined). */
+    image?: string;
   }): Promise<{ id: string }>;
   /** Resolves when the user decides, the timeout passes ('expired') or the signal aborts. */
   waitForApproval(approvalId: string, timeoutMs: number, signal: AbortSignal): Promise<ApprovalDecision>;
@@ -257,8 +259,16 @@ export interface BrowserPort {
   open(userId: string, profile: string, url: string, signal: AbortSignal): Promise<BrowserPage>;
   snapshot(userId: string, profile: string, signal: AbortSignal): Promise<BrowserPage>;
   act(userId: string, profile: string, action: BrowserAction, signal: AbortSignal): Promise<BrowserPage>;
-  /** Saves a PNG of the visible page into the workspace and returns its path. */
-  screenshot(userId: string, profile: string, signal: AbortSignal): Promise<{ path: string }>;
+  /**
+   * Saves a picture of the visible page into the workspace and returns its path (PNG). `highlight`: a ref to
+   * outline (an approval showing what will be clicked); `jpeg`: a smaller file, for pictures only glanced at.
+   */
+  screenshot(userId: string, profile: string, signal: AbortSignal, options?: { highlight?: string; jpeg?: boolean }): Promise<{ path: string }>;
+  /**
+   * Optional: what a ref from the latest snapshot is ("button", "Sign in"), so approvals can name it. Null
+   * when it is gone; hosts without it get approvals that only give the ref.
+   */
+  element?(userId: string, profile: string, ref: string): Promise<BrowserElement | null>;
   /** URL of the open page, or null when the profile has no page open. */
   currentUrl(userId: string, profile: string): Promise<string | null>;
   close(userId: string, profile: string): Promise<void>;
@@ -268,6 +278,14 @@ export interface BrowserPort {
    * browser; without it, it opens and closes a "reader" profile.
    */
   read?(userId: string, url: string, signal: AbortSignal): Promise<BrowserPage>;
+}
+
+export interface BrowserElement {
+  /** As the snapshot names it: button, link, textbox, checkbox, select... */
+  role: string;
+  label: string;
+  /** A password field: what is typed into it is never shown back. */
+  password: boolean;
 }
 
 /**

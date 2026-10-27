@@ -100,8 +100,11 @@ interface BrowserPort {
   open(userId, profile, url, signal): Promise<BrowserPage>;
   snapshot(userId, profile, signal): Promise<BrowserPage>;
   act(userId, profile, action: BrowserAction, signal): Promise<BrowserPage>;
-  screenshot(userId, profile, signal): Promise<{ path: string }>;
+  // options: highlight outlines a ref (approvals); jpeg saves a smaller file.
+  screenshot(userId, profile, signal, options?: { highlight?: string; jpeg?: boolean }): Promise<{ path: string }>;
   currentUrl(userId, profile): Promise<string | null>;
+  // Optional: what a ref is, so approvals can name it ("Sign in", a button). null when it is gone.
+  element?(userId, profile, ref): Promise<{ role: string; label: string; password: boolean } | null>;
   close(userId, profile): Promise<void>;
   // Optional: a page read in a tab of its own and closed, so parallel reads share no profile and start no extra browser.
   read?(userId, url, signal): Promise<BrowserPage>;
@@ -122,6 +125,9 @@ interface BrowserPage { url: string; title: string; snapshot: string }
   for more. Snapshots are untrusted content.
 - `browser_screenshot` saves a PNG into the workspace and returns its path; the model gets the path, the user sees the
   picture in their files.
+- **Approvals** for `click`, `type` and `press` name the element and the site (with `element`) and attach a screenshot
+  with the element outlined (`ApprovalText.image`), so the user sees what they approve. Text for a password field shows
+  as dots. Every part is optional: if `element` or the screenshot fails, the approval still appears.
 
 ### Who decides what the agent may do
 

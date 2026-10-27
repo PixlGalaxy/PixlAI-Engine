@@ -38,7 +38,7 @@ interface PendingSteer { id: string; content: string }
 |---|---|
 | `takeSteers(runId)` | Returns the steers for this run that were not applied yet, oldest first, and marks them applied **atomically**: two concurrent calls must never return the same steer, and a steer must not be lost if the process dies right after. Returns `[]` when there are none. Called before every model call. |
 | `watchSteers(runId, onSteer)` | Calls `onSteer()` **promptly** (well under a second) when a new steer for this run exists. Returns an unsubscribe function that must stop all callbacks. It does not hand over the steer: the engine then reads it with `takeSteers`. Kept for hosts that want it; the loop no longer calls it, since steers never cut a generation. |
-| `createApproval(input)` | Stores a pending approval for the run and returns its id. `summary` and `details` are what you show to the user. |
+| `createApproval(input)` | Stores a pending approval for the run and returns its id. `summary` and `details` are what you show to the user; `image`, when present, is a workspace picture of what will happen. |
 | `waitForApproval(id, timeoutMs, signal)` | Resolves with the user's decision. It must also resolve when `timeoutMs` passes (`'expired'`) and when `signal` aborts (any value; the engine checks the signal first). It must never hang. An unknown id should resolve `'expired'`. If the decision was already made before the call, resolve immediately. |
 
 `InMemoryRunStore` also has two host-side helpers that are not part of the port: `steer(runId, content)` stores a steer and notifies watchers, and `decide(approvalId, decision)` answers an approval (the first decision wins). The `created` array lists every approval created, which is handy in tests.
