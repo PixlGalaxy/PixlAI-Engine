@@ -1,5 +1,5 @@
-import type { BrowserAction, BrowserPage, BrowserPort } from '../ports.js';
-import { defineTool, type GateContext, type Tool, type ToolContext } from '../tools/tool.js';
+import type { BrowserAction, BrowserElement, BrowserPage, BrowserPort } from '../ports.js';
+import { defineTool, type ApprovalText, type GateContext, type Tool, type ToolContext } from '../tools/tool.js';
 
 /** Snapshot characters sent to the model per page view. */
 const SNAPSHOT_CHARS = 12_000;
@@ -46,6 +46,41 @@ function actionGate(kind: BrowserAction['kind']) {
     return decision === 'allow' ? 'run' : 'approve';
   };
 }
+
+/** The page as an approval shows it: host and path, short. */
+function pageOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const where = `${u.host}${u.pathname === '/' ? '' : u.pathname}`;
+    return where.length > 80 ? `${where.slice(0, 80)}...` : where;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What an approval shows about an action on the open page: which page, what the ref is ("Sign in", a
+ * button) and a picture of the page with it outlined, so the user approves what they can see, not "@e7".
+ * Every part is optional: a host without element() or a failed picture still gets an approval.
+ */
+async function target(ctx: GateContext, profileRaw: unknown, ref?: string): Promise<{ page: string | null; element: BrowserElement | null; image?: string }> {
+  const browser = ctx.browser;
+  if (!browser) return { page: null, element: null };
+  const profile = profileOf(profileRaw);
+  const [url, element] = await Promise.all([
+    browser.currentUrl(ctx.user.id, profile).catch(() => null),
+    ref && browser.element ? browser.element(ctx.user.id, profile, ref).catch(() => null) : Promise.resolve(null),
+  ]);
+  const shot = await browser
+    .screenshot(ctx.user.id, profile, AbortSignal.timeout(20_000), { jpeg: true, ...(ref && element && { highlight: ref }) })
+    .catch(() => null);
+  return { page: pageOf(url), element, ...(shot && { image: shot.path }) };
+}
+
+const named = (element: BrowserElement | null, ref: string) =>
+  element ? (element.label ? `"${element.label}" (${element.role})` : `a ${element.role}`) : ref;
+const on = (page: string | null) => (page ? ` on ${page.split('/')[0]}` : '');
 
 const profileParam = { type: 'string', description: 'Cookie profile: "default", or a name to keep a login apart (e.g. "outlook")' };
 const refParam = { type: 'string', description: 'Element ref from the latest snapshot, e.g. "@e12"' };
@@ -98,7 +133,15 @@ export const browserClick = defineTool<{ ref: string; profile?: string }>({
   mainAgentOnly: true,
   timeoutMs: BROWSER_TIMEOUT_MS,
   gate: actionGate('click'),
-  describe: (a) => ({ summary: `Click ${a.ref} in the browser`, details: { element: String(a.ref) } }),
+  async describe(a, ctx): Promise<ApprovalText> {
+    const ref = String(a.ref);
+    const { page, element, image } = await target(ctx, a.profile, ref);
+    return {
+      summary: `Click ${named(element, ref)}${on(page)}`,
+      details: { ...(page && { page }), element: element ? `${element.role} "${element.label}"` : ref },
+      ...(image && { image }),
+    };
+  },
   async run(args, ctx) {
     return view(await browserOf(ctx).act(ctx.user.id, profileOf(args.profile), { kind: 'click', ref: String(args.ref) }, ctx.signal));
   },
@@ -118,10 +161,21 @@ export const browserType = defineTool<{ ref: string; text: string; submit?: bool
   mainAgentOnly: true,
   timeoutMs: BROWSER_TIMEOUT_MS,
   gate: actionGate('type'),
-  describe: (a) => ({
-    summary: `Type into ${a.ref}${a.submit ? ' and press Enter' : ''}`,
-    details: { element: String(a.ref), text: String(a.text).slice(0, 200) },
-  }),
+  async describe(a, ctx): Promise<ApprovalText> {
+    const ref = String(a.ref);
+    const { page, element, image } = await target(ctx, a.profile, ref);
+    const text = String(a.text ?? '');
+    return {
+      summary: `Type into ${named(element, ref)}${a.submit ? ' and press Enter' : ''}${on(page)}`,
+      details: {
+        ...(page && { page }),
+        field: element ? `${element.role} "${element.label}"` : ref,
+        // A password is never shown back, not even to its owner on screen.
+        text: element?.password ? '•'.repeat(Math.min(text.length, 12)) : text.slice(0, 200),
+      },
+      ...(image && { image }),
+    };
+  },
   async run(args, ctx) {
     const action: BrowserAction = { kind: 'type', ref: String(args.ref), text: String(args.text ?? ''), submit: Boolean(args.submit) };
     return view(await browserOf(ctx).act(ctx.user.id, profileOf(args.profile), action, ctx.signal));
@@ -138,7 +192,10 @@ export const browserPress = defineTool<{ key: string; profile?: string }>({
   mainAgentOnly: true,
   timeoutMs: BROWSER_TIMEOUT_MS,
   gate: actionGate('press'),
-  describe: (a) => ({ summary: `Press ${a.key} in the browser`, details: { key: String(a.key) } }),
+  async describe(a, ctx): Promise<ApprovalText> {
+    const { page, image } = await target(ctx, a.profile);
+    return { summary: `Press ${a.key}${on(page) || ' in the browser'}`, details: { ...(page && { page }), key: String(a.key) }, ...(image && { image }) };
+  },
   async run(args, ctx) {
     const key = String(args.key ?? '').trim();
     if (!/^[A-Za-z0-9+]{1,30}$/.test(key)) throw new Error('key: a key name like "Enter" or "Control+A"');

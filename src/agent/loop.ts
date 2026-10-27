@@ -550,12 +550,13 @@ export async function runLoop(input: LoopInput): Promise<RunResult> {
         args: call.args,
         summary: described.summary,
         details: described.details ?? {},
+        ...(described.image && { image: described.image }),
       });
       view.status = 'waiting_approval';
       await emit({ type: 'tool_call', call: { ...view } });
       await emit({
         type: 'approval_required',
-        approval: { id: approval.id, tool_name: tool.name, summary: described.summary, details: described.details ?? {} },
+        approval: { id: approval.id, tool_name: tool.name, summary: described.summary, details: described.details ?? {}, ...(described.image && { image: described.image }) },
       });
       await emit({ type: 'status', status: 'waiting_approval' });
       const decision = await services.runs.waitForApproval(approval.id, limits.approvalTimeoutMs, signal);

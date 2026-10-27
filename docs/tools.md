@@ -37,7 +37,7 @@ const sendEmail = defineTool<{ to: string; body: string }>({
 | `mainAgentOnly` | `boolean` (optional) | Never offered to subagents |
 | `gate` | `(args, ctx) => Promise<'run' | 'approve' | { refuse: string }>` (optional) | Per-call decision before running: `approve` waits for the user like an external tool, `refuse` fails with the message. `ctx` has `user`, `runKind`, `host`, `browser`, `browserPolicy`. The browser pack uses it ([Code, web and browser](code-web-browser.md)). |
 | `timeoutMs` | `number` (optional) | Overrides `limits.toolTimeoutMs` for this tool, for work that legitimately takes minutes (downloads, indexing) |
-| `describe` | `(args) => { summary: string; details?: Record<string, string> }` (optional) | For approvals: one line saying what will happen, plus fields worth showing. Without it the summary is the tool name. |
+| `describe` | `(args, ctx) => { summary: string; details?: Record<string, string>; image?: string }`, may be async (optional) | For approvals: one line saying what will happen, fields worth showing, and optionally a workspace picture of it. Without it the summary is the tool name. |
 | `view` | `(args) => Record<string, unknown>` (optional) | The arguments as tool cards show them (events, saved answers). Default: all of them, with texts over 2,000 characters clipped. Leave out what is shown another way or too big to send around. |
 | `run` | `(args, ctx) => Promise<unknown>` | Does the work and returns any JSON-serializable value |
 

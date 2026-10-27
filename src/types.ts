@@ -127,6 +127,8 @@ export interface ApprovalView {
   tool_name: string;
   summary: string;
   details: Record<string, string>;
+  /** Workspace path of a picture of what will happen. */
+  image?: string;
 }
 
 /**

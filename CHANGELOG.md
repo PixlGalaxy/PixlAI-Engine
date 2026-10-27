@@ -2,7 +2,7 @@
 
 All notable changes to PixlAI-Engine. Every breaking change is listed under **Breaking**.
 
-## Unreleased
+## 1.1.0 (2026-10-26)
 
 ### Changed
 
@@ -12,6 +12,10 @@ All notable changes to PixlAI-Engine. Every breaking change is listed under **Br
 
 ### Added
 
+- **Browser approvals say what they are about.** `browser_click`, `browser_type` and `browser_press` approvals name the element and the site (`Click "Sign in" (button) on example.com`) instead of a ref like `@e7`, and carry a screenshot of the page with the element outlined. A password field's text shows as dots.
+- **`ApprovalText.image`**: a workspace picture of what will happen. It reaches `RunStore.createApproval` and the `approval_required` event as `image`.
+- **`BrowserPort.element(userId, profile, ref)`** (optional): what a ref is (`role`, `label`, `password`). Without it approvals keep the ref.
+- **`BrowserPort.screenshot` options**: `highlight` (a ref to outline) and `jpeg` (a smaller file).
 - **`WorkspacePort.hidden(path)`** (optional): paths the host keeps for itself, such as a cache of converted previews. The files, rag and web tools leave them out of listings and searches and answer "Not found" when the agent names one. `InMemoryWorkspace` has a settable `hidden` to try it. `isHidden` and `assertVisible` help tools of your own do the same.
 
 ## 1.0.2 (2026-10-16)
