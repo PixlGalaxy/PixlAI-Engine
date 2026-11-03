@@ -9,6 +9,7 @@ appears only when you pass the port it needs:
 | web | `search: SearchPort` | `web_search` |
 | | `fetcher: FetchPort` | `web_fetch`, and with a `workspace` also `web_download` |
 | browser | `browser: BrowserPort` (+ optional `browserPolicy`) | `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_close` |
+| | `browser.readPages` + `workspace` | `browser_save_pages` ([below](#saving-a-long-text-browser_save_pages)) |
 
 ```ts
 const engine = createEngine({
@@ -108,6 +109,8 @@ interface BrowserPort {
   close(userId, profile): Promise<void>;
   // Optional: a page read in a tab of its own and closed, so parallel reads share no profile and start no extra browser.
   read?(userId, url, signal): Promise<BrowserPage>;
+  // Optional: the open page's text as Markdown, page after page, one batch per call (browser_save_pages).
+  readPages?(userId, profile, request: PageReadRequest, signal): Promise<PageReadBatch>;
 }
 type BrowserAction =
   | { kind: 'click'; ref: string }
@@ -150,6 +153,67 @@ StudyHawk, for example, allows actions on domains the user marked as trusted, as
 action on the school's Canvas (the app is read-only there; it reads Canvas through its API tools).
 
 All browser tools are main-agent-only: subagents cannot drive the user's logged-in browser.
+
+## Saving a long text: browser_save_pages
+
+Some texts can only be read in the browser: an e-book reader with no download, a chapter split into pages, a long
+article. Reading them with `browser_snapshot` puts every page into the conversation (12,000 characters at a time), and
+on a site that is not trusted every click on "Next" asks again. `browser_save_pages` reads the open page as Markdown,
+turns page after page, and writes the text **straight into a workspace file**: the model only gets back the path, the
+title, the number of pages and why it stopped. With `rag`, the file is then added to that collection (created if
+missing) with the same code as `rag_add`, so the agent answers from it with `rag_ask`.
+
+The agent opens the first page (signing in if needed), takes a snapshot to find the way forward, then calls:
+
+```ts
+browser_save_pages({
+  path: 'Books/Financial Accounting.md', // .md is added if missing; replaced if it exists
+  turn: 'click',                         // 'click' | 'press' | 'scroll' | 'none'
+  ref: '@e12',                           // with 'click': the "Next page" control from the snapshot
+  key: 'ArrowRight',                     // with 'press': ArrowRight, ArrowDown, PageDown or Space
+  max_pages: 500,                        // default 500, at most 2,000
+  rag: 'ACG 2021 textbook',              // optional: index the file when done
+});
+```
+
+It stops at the last page (turning changes nothing, or the next control is gone or disabled), at `max_pages`, or at
+its own limits (20 MB of text, 25 minutes of reading): then the result says it is not finished, and a second call with
+a new path goes on from where the browser is. A reader that draws its pages as pictures (a canvas, page images) has no
+text: the tool fails with a message telling the agent to say so to the user instead of retrying. It does not run OCR.
+
+**Approval.** `turn: 'click'` and `'press'` act on the site, so they go through the same gate as `browser_click` with
+your `BrowserPolicy`, but **once for the whole reading**: the approval reads "Read up to 500 pages on reader.example,
+clicking "Next page" (button) to turn each page, and save them" with a screenshot of the control outlined. `'scroll'` and
+`'none'` only read, so they run without asking. In scheduled runs only what the policy allows outright runs.
+
+**The host's side** is `readPages`, one batch per call so no single request runs for minutes:
+
+```ts
+interface PageReadRequest {
+  start: boolean; // true: read the page that is open; false: turn first, then read
+  turn: { kind: 'none' } | { kind: 'click'; ref: string } | { kind: 'press'; key: string } | { kind: 'scroll' };
+  pages: number;  // at most this many pages in this batch (stop sooner to answer in time)
+}
+interface PageReadBatch {
+  url: string;
+  title: string;
+  markdown: string; // only the new text of this batch
+  pages: number;
+  end: 'last-page' | 'no-text' | 'done' | null; // null: there is more
+  images?: boolean; // with 'no-text': the page shows large images or canvases
+}
+```
+
+The engine calls it with `start: true`, then with `start: false` until `end` is set, appending each batch's `markdown`
+to the file. Between calls the host keeps, per profile, what the last page had, so text the next page repeats (a
+running header, the part of a long page a scroll kept on screen) is returned once. A `click` turn should find its
+control again after the page re-renders (by its name), and treat a disabled control as the last page. StudyHawk's
+sandbox runner does this in the browser: it reads the main content (`main`, `article`) of the page and of its visible
+frames (readers often render in an iframe) and open shadow roots, leaves out menus, toolbars, buttons and forms, and
+writes headings, lists, quotes, code and tables as Markdown.
+
+The tool is offered only when the port has `readPages` and the engine has a `workspace`. The text is the user's own
+copy, for their own study: keep it in their files, out of anything shared.
 
 ## Writing a gate for your own tools
 

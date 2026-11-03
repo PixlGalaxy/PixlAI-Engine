@@ -209,7 +209,7 @@ Packs turn on when the host provides their port (a `workspace` enables files, `e
 | rag | `rag_list/create/add/search/ask/delete`, plus read-only shared RAGs | `EmbeddingPort`, `TextExtractor`, `SharedRagSource` | Available ([docs](workspace-and-rag.md)) |
 | documents | Read PDF, DOCX, PPTX into text (through `TextExtractor`); XLSX and CSV as tables; generate documents | `TextExtractor`, `WorkspacePort` | Reading available through the host's extractor; tables and generation planned |
 | code | `code_run` (Python, Node, shell in a sandbox, with timeout and bounded output) | `SandboxPort` | Available ([docs](code-web-browser.md)) |
-| browser | `browser_open/snapshot/click/type/press/scroll/back/screenshot/close`, cookie profiles, approval policy | `BrowserPort`, `BrowserPolicy` | Available ([docs](code-web-browser.md)) |
+| browser | `browser_open/snapshot/click/type/press/scroll/back/screenshot/close`, cookie profiles, approval policy; `browser_save_pages` (a long text into a Markdown file and a RAG) | `BrowserPort`, `BrowserPolicy` (+ `readPages` and a workspace) | Available ([docs](code-web-browser.md)) |
 | data | Queries over CSV and JSON (filter, group, chart to image) | `SandboxPort` | Planned |
 | http | `http_request` to APIs the host allows (allowlist) | Host config | Planned |
 | mcp client | Connect external MCP servers and expose their tools | `McpPort` | Planned |

@@ -2,6 +2,14 @@
 
 All notable changes to PixlAI-Engine. Every breaking change is listed under **Breaking**.
 
+## 1.2.0 (2026-11-03)
+
+### Added
+
+- **`browser_save_pages`: save a long text read in the browser.** For an online book or reader with no download: the tool reads the open page as Markdown, turns page after page (clicking a "Next" control, pressing a key or scrolling) until the last one, and writes the text straight into a workspace file, so it never fills the conversation. With `rag`, the file is then added to that collection, created if missing. Turning pages asks for one approval for the whole reading (through the `BrowserPolicy`, like `browser_click`), not one per page. A reader that draws its pages as pictures has no text: the tool says so instead of saving an empty file. See [Saving a long text](docs/code-web-browser.md#saving-a-long-text-browser_save_pages).
+- **`BrowserPort.readPages(userId, profile, request, signal)`** (optional): one batch of that reading, with `PageReadRequest`, `PageReadBatch` and `PageTurn`. The tool is offered only when the port has it and there is a workspace.
+- `browserSavePages` and `assertNotRag` are exported, for hosts that build their own tool lists.
+
 ## 1.1.0 (2026-10-26)
 
 ### Changed
