@@ -278,6 +278,38 @@ export interface BrowserPort {
    * browser; without it, it opens and closes a "reader" profile.
    */
   read?(userId: string, url: string, signal: AbortSignal): Promise<BrowserPage>;
+  /**
+   * Optional: reads the open page's text as Markdown and turns page after page, for browser_save_pages (a
+   * book or long reader with no download). One call is one batch: `start` reads the page that is open, a later
+   * call turns first and goes on. Text the next page repeats (a running header, what a scroll kept on screen)
+   * is returned once. Without it browser_save_pages is not offered.
+   */
+  readPages?(userId: string, profile: string, request: PageReadRequest, signal: AbortSignal): Promise<PageReadBatch>;
+}
+
+/** How browser_save_pages gets to the next page. */
+export type PageTurn = { kind: 'none' } | { kind: 'click'; ref: string } | { kind: 'press'; key: string } | { kind: 'scroll' };
+
+export interface PageReadRequest {
+  start: boolean;
+  turn: PageTurn;
+  /** At most this many pages in this batch (the host may stop sooner, to answer in time). */
+  pages: number;
+}
+
+export interface PageReadBatch {
+  url: string;
+  title: string;
+  /** The new text of this batch, as Markdown. */
+  markdown: string;
+  pages: number;
+  /**
+   * Why the reading stopped: `last-page` (turning changed nothing, or the next control is gone or disabled),
+   * `no-text` (nothing to read on the first page), `done` (no turning was asked), or null when there is more.
+   */
+  end: 'last-page' | 'no-text' | 'done' | null;
+  /** With `no-text`: the page shows large images or canvases (a reader that draws its pages as pictures). */
+  images?: boolean;
 }
 
 export interface BrowserElement {

@@ -26,7 +26,7 @@ export function cleanPath(raw: unknown): string {
   return path;
 }
 
-function assertNotRag(path: string): void {
+export function assertNotRag(path: string): void {
   if (path === RAG_DIR || path.startsWith(`${RAG_DIR}/`)) {
     throw new Error('The .rag folder is managed by the rag_ tools; use them instead');
   }

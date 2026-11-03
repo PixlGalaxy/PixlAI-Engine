@@ -15,7 +15,7 @@ import type {
   TextExtractor,
   WorkspacePort,
 } from './ports.js';
-import { BROWSER_TOOLS } from './browser/tools.js';
+import { BROWSER_TOOLS, browserSavePages } from './browser/tools.js';
 import { CODE_TOOLS } from './tools/code.js';
 import { webDownload, webFetch, webSearch } from './web/tools.js';
 import { agentDelegate, taskBrief, toReport, type DelegateReport, type DelegateTask } from './agent/delegate.js';
@@ -187,6 +187,8 @@ export function createEngine(options: EngineOptions): Engine {
       ...(options.fetcher && options.workspace ? [webDownload] : []),
     ]),
     ...(options.browser ? inGroup('browser', BROWSER_TOOLS) : []),
+    // Saving pages writes a file (and may index it): only with a workspace, and a browser that can read page after page.
+    ...(options.browser?.readPages && options.workspace ? inGroup('browser', [browserSavePages]) : []),
     ...(options.displays?.includes('html') ? inGroup('display', DISPLAY_TOOLS) : []),
     ...(options.lazyToolGroups ? [toolsLoad] : []),
   ];

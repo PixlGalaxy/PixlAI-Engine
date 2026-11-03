@@ -53,12 +53,13 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 | `DISPLAY_TOOLS`, `showHtml` | `show_html`, offered with `EngineOptions.displays: ['html']`. |
 | `toolsLoad`, `inGroup(group, tools)`, `toolSummary(tool)`, `ENGINE_GROUP_NOTES` | Lazy tool groups: the `tools_load` tool, a group's tools, a tool's one-line summary, and the engine packs' lines in the list of groups. [Tools](tools.md) |
 | `CRON_TOOLS`, `SCHEDULED_RUN_NOTE` | `cron_create/list/update/delete`, and the note added to scheduled runs. |
-| `FILES_TOOLS`, `cleanPath`, `RAG_DIR` | The files pack (needs a workspace) and its path rules. [Workspace and RAG](workspace-and-rag.md) |
+| `FILES_TOOLS`, `cleanPath`, `RAG_DIR`, `assertNotRag` | The files pack (needs a workspace) and its path rules. [Workspace and RAG](workspace-and-rag.md) |
 | `isHidden(workspace, path)`, `assertVisible(workspace, path)` | Whether a path is one the host hides (`WorkspacePort.hidden`), and the "Not found" check the built-in tools use, for tools of your own. |
 | `RAG_TOOLS`, `UserRags`, `chunkPages`, `ragId`, `RagManifest`, `RagSource`, `Chunk` | The RAG pack and its storage helpers. |
 | `CODE_TOOLS`, `codeRun`, `clipMiddle` | `code_run` over a `SandboxPort`. [Code, web and browser](code-web-browser.md) |
 | `WEB_TOOLS`, `webSearch`, `webFetch`, `webDownload`, `htmlToText`, `decodeEntities` | The web pack and its HTML-to-text helpers. |
 | `BROWSER_TOOLS` | `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_close`. |
+| `browserSavePages` | `browser_save_pages`: a long text read in the browser, page after page, into a Markdown file (and a RAG). Added when the browser has `readPages` and there is a workspace. [Code, web and browser](code-web-browser.md#saving-a-long-text-browser_save_pages) |
 | `wrapUntrusted(source, text)`, `steerContent(text)` | The wrappers for third-party text and for steers. [Security](security.md) |
 
 ## Delegation
@@ -96,6 +97,7 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 | `SearchPort`, `SearchHit`, `FetchPort`, `FetchedPage` | Web search and fetching. |
 | `SearchChain`, `SearchProvider`, `SearchChainOptions` | A `SearchPort` over several providers: next one on failure or no results, failed ones cool down. [Docs](code-web-browser.md#several-search-providers-searchchain) |
 | `BrowserPort`, `BrowserPage`, `BrowserAction`, `BrowserPolicy` | A real browser and where it may act. |
+| `PageTurn`, `PageReadRequest`, `PageReadBatch` | `BrowserPort.readPages`: how to reach the next page, and one batch of read text. |
 | `Logger`, `Clock` | Optional logging and time source. |
 
 ## In-memory stores

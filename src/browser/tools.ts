@@ -1,4 +1,7 @@
-import type { BrowserAction, BrowserElement, BrowserPage, BrowserPort } from '../ports.js';
+import type { BrowserAction, BrowserElement, BrowserPage, BrowserPort, PageTurn } from '../ports.js';
+import { ragAdd, ragCreate } from '../rag/tools.js';
+import { ragId, UserRags } from '../rag/store.js';
+import { assertNotRag, assertVisible, cleanPath, workspaceOf } from '../tools/files.js';
 import { defineTool, type ApprovalText, type GateContext, type Tool, type ToolContext } from '../tools/tool.js';
 
 /** Snapshot characters sent to the model per page view. */
@@ -255,6 +258,165 @@ export const browserClose = defineTool<{ profile?: string }>({
   async run(args, ctx) {
     await browserOf(ctx).close(ctx.user.id, profileOf(args.profile));
     return { closed: true };
+  },
+});
+
+/** browser_save_pages: pages per batch, the most per call, and when it stops to answer before its timeout. */
+const SAVE_BATCH = 20;
+const SAVE_DEFAULT_PAGES = 500;
+const SAVE_MAX_PAGES = 2000;
+const SAVE_MAX_BYTES = 20 * 1024 * 1024;
+const SAVE_BUDGET_MS = 25 * 60_000;
+const SAVE_TIMEOUT_MS = 45 * 60_000;
+const TURN_KEYS = ['ArrowRight', 'ArrowDown', 'PageDown', 'Space'];
+
+type SaveArgs = { path: string; turn?: string; ref?: string; key?: string; max_pages?: number; rag?: string; profile?: string };
+
+function turnOf(args: SaveArgs): PageTurn {
+  const kind = String(args.turn ?? 'none');
+  if (kind === 'none' || kind === 'scroll') return { kind };
+  if (kind === 'click') {
+    const ref = String(args.ref ?? '').trim();
+    if (!/^@?e\d{1,6}$/.test(ref)) throw new Error('turn "click" needs ref: the "next page" control from the latest snapshot, e.g. "@e12"');
+    return { kind, ref };
+  }
+  if (kind === 'press') {
+    const key = String(args.key ?? 'ArrowRight');
+    if (!TURN_KEYS.includes(key)) throw new Error(`key: one of ${TURN_KEYS.join(', ')}`);
+    return { kind, key };
+  }
+  throw new Error('turn: none, click, press or scroll');
+}
+
+function savePathOf(raw: unknown): string {
+  let path = cleanPath(raw);
+  if (!path) throw new Error('path is required, e.g. "Books/Financial Accounting.md"');
+  if (!/\.md$/i.test(path)) path = `${path}.md`;
+  assertNotRag(path);
+  return path;
+}
+
+const pagesOf = (raw: unknown) => Math.min(Math.max(Math.floor(Number(raw) || SAVE_DEFAULT_PAGES), 1), SAVE_MAX_PAGES);
+
+export const browserSavePages = defineTool<SaveArgs>({
+  name: 'browser_save_pages',
+  summary: 'save a long text read in the browser (an online book with no download) as Markdown, and index it',
+  description:
+    'Save the text of the page open in the browser into a Markdown file, going on page after page, so a long text the ' +
+    'student can only read online (an e-book reader, a chapter split into pages, a long article) can be kept and searched ' +
+    'when there is no download. The text goes straight to the file, not into the conversation. Open the first page you ' +
+    'want first (browser_open, signing in if needed) and take a snapshot to find how to reach the next page. turn: ' +
+    '"click" a "Next page" control (ref from the snapshot), "press" a key (ArrowRight, ArrowDown, PageDown, Space), ' +
+    '"scroll" down a long page, or "none" for only the page that is open. It stops at the last page (nothing changes, or ' +
+    'Next is gone or disabled), or at max_pages (default 500). rag: a collection (created if missing) the file is added to ' +
+    'when the reading ends, so you can answer from it with rag_ask. A reader that shows its pages as pictures has no text ' +
+    'to save: say so instead of retrying. Only for the student\'s own study: the file stays in their files.',
+  parameters: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Markdown file to write, e.g. "Books/Financial Accounting.md" (replaced if it exists)' },
+      turn: { type: 'string', enum: ['click', 'press', 'scroll', 'none'] },
+      ref: { type: 'string', description: 'With turn "click": the next page control, e.g. "@e12"' },
+      key: { type: 'string', enum: TURN_KEYS, description: 'With turn "press" (default ArrowRight)' },
+      max_pages: { type: 'number', description: `Most pages to read (default ${SAVE_DEFAULT_PAGES}, at most ${SAVE_MAX_PAGES})` },
+      rag: { type: 'string', description: 'Collection to add the file to when done, e.g. "ACG 2021 textbook" (created if missing)' },
+      profile: profileParam,
+    },
+    required: ['path'],
+  },
+  sideEffect: 'none',
+  untrusted: true,
+  mainAgentOnly: true,
+  timeoutMs: SAVE_TIMEOUT_MS,
+  // Turning pages clicks or presses keys on the site: one approval for the whole reading, as the site's policy says.
+  // Reading what is open, or scrolling, acts on nothing.
+  async gate(args, ctx) {
+    const kind = String(args.turn ?? 'none');
+    if (kind === 'click' || kind === 'press') return actionGate(kind)(args, ctx);
+    return (await browserOf(ctx).currentUrl(ctx.user.id, profileOf(args.profile))) ? 'run' : { refuse: 'No page is open in this profile: use browser_open first' };
+  },
+  async describe(args, ctx): Promise<ApprovalText> {
+    const ref = args.turn === 'click' ? String(args.ref ?? '') : undefined;
+    const { page, element, image } = await target(ctx, args.profile, ref);
+    const how = args.turn === 'click' ? `clicking ${named(element, ref ?? '')}` : `pressing ${String(args.key ?? 'ArrowRight')}`;
+    let path: string;
+    try {
+      path = savePathOf(args.path);
+    } catch {
+      path = String(args.path ?? '');
+    }
+    return {
+      summary: `Read up to ${pagesOf(args.max_pages)} pages${on(page)}, ${how} to turn each page, and save them`,
+      details: { ...(page && { page }), turn: how, file: path, ...(args.rag && { rag: String(args.rag) }) },
+      ...(image && { image }),
+    };
+  },
+  async run(args, ctx) {
+    const browser = browserOf(ctx);
+    if (!browser.readPages) throw new Error('Saving pages is not available in this browser');
+    const ws = workspaceOf(ctx);
+    const profile = profileOf(args.profile);
+    const turn = turnOf(args);
+    const path = savePathOf(args.path);
+    assertVisible(ws, path);
+    const max = pagesOf(args.max_pages);
+    if (args.rag && !ctx.embeddings) throw new Error('RAG is not available here (no embedding model): leave out rag');
+
+    const started = Date.now();
+    let pages = 0;
+    let bytes = 0;
+    let end: string | null = null;
+    let first = true;
+    // A batch can end with nothing new (a long page scrolled through for a while): a few in a row is the end.
+    let empty = 0;
+    let source = { url: '', title: '' };
+    while (pages < max) {
+      const batch = await browser.readPages(ctx.user.id, profile, { start: first, turn, pages: Math.min(SAVE_BATCH, max - pages) }, ctx.signal);
+      if (first) {
+        if (batch.end === 'no-text' && !batch.markdown) {
+          throw new Error(
+            batch.images
+              ? 'This reader shows its pages as pictures (images or a canvas), so there is no text to save. Tell the student; do not retry.'
+              : 'There is no text to read on this page. Check that the book itself is open (not a cover or a menu), or tell the student.',
+          );
+        }
+        source = { url: batch.url, title: batch.title };
+        const head = `# ${batch.title || 'Saved pages'}\n\nSource: ${batch.url}\nSaved: ${ctx.clock.now().toISOString().slice(0, 10)}\n\n`;
+        await ws.write(ctx.user.id, path, head);
+        bytes += Buffer.byteLength(head);
+        first = false;
+      }
+      if (batch.markdown) {
+        const text = `${batch.markdown}\n\n`;
+        await ws.write(ctx.user.id, path, text, { append: true });
+        bytes += Buffer.byteLength(text);
+      }
+      pages += batch.pages;
+      end = batch.end;
+      empty = batch.pages === 0 ? empty + 1 : 0;
+      if (end || empty >= 3) break;
+      if (bytes > SAVE_MAX_BYTES || Date.now() - started > SAVE_BUDGET_MS) break;
+    }
+    const complete = end !== null || pages >= max;
+    const result: Record<string, unknown> = {
+      saved: path,
+      title: source.title,
+      url: source.url,
+      pages,
+      characters: bytes,
+      stopped: end === 'last-page' ? 'last page reached' : end === 'done' ? 'only the open page was asked' : pages >= max ? 'max_pages reached' : 'time or size limit',
+      ...(!complete && { note: 'Not finished: the browser is on the last page read. Call again with turn and a new path (e.g. "... part 2.md") to go on.' }),
+    };
+    if (args.rag) {
+      const name = String(args.rag).trim();
+      const rags = new UserRags(ws, ctx.user.id);
+      if (!(await rags.exists(ragId(name)))) {
+        // Not the page's title: it is the site's text, and rag_list shows descriptions to the agent as they are.
+        await ragCreate.run({ name, description: `Pages saved from ${source.url ? new URL(source.url).host : 'the browser'} into ${path}` }, ctx);
+      }
+      result.rag = { rag: ragId(name), ...((await ragAdd.run({ rag: ragId(name), paths: [path] }, ctx)) as Record<string, unknown>) };
+    }
+    return result;
   },
 });
 

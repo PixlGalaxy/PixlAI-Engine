@@ -8,7 +8,10 @@ import {
   type BrowserPage,
   type BrowserPolicy,
   type BrowserPort,
+  type EmbeddingPort,
   type ExecRequest,
+  type PageReadBatch,
+  type PageReadRequest,
   type FetchPort,
   type SandboxPort,
   type SearchPort,
@@ -334,4 +337,84 @@ test('web_fetch reads pages drawn by JavaScript and pages behind a bot check in 
   const q = new ScriptedProvider([() => toolCall('web_fetch', { url: 'https://blocked.example/' }), () => text('ok')]);
   await plain.agent.run({ runId: 'r2', model: model(q), history: [user('read it')], sink: plain.sink });
   assert.match(q.requests[1]!.messages.at(-1)!.content, /"status": 403/, 'without a browser the block is reported');
+});
+
+// ------------------------------------------------------------------ saving pages (a book read online)
+
+/** A three-page "book": each batch hands back the pages asked for, the last one ends it. */
+class BookBrowser extends FakeBrowser {
+  book = ['## Chapter 1\n\nInventory is counted with FIFO.', 'Depreciation spreads the cost of an asset.', 'Accruals record revenue when earned.'];
+  at = 0;
+  batches: PageReadRequest[] = [];
+  images = false;
+  async readPages(_u: string, _p: string, request: PageReadRequest): Promise<PageReadBatch> {
+    this.batches.push(request);
+    if (this.images) return { url: 'https://reader.example/b/1', title: 'Book', markdown: '', pages: 0, end: 'no-text', images: true };
+    if (request.start) this.at = 0;
+    else this.at++;
+    const pages = this.book.slice(this.at, this.at + request.pages);
+    this.at += pages.length - 1;
+    const last = this.at >= this.book.length - 1 || request.turn.kind === 'none';
+    return { url: 'https://reader.example/b/1', title: 'Accounting 101', markdown: pages.join('\n\n'), pages: pages.length, end: last ? (request.turn.kind === 'none' ? 'done' : 'last-page') : null };
+  }
+}
+
+class Words implements EmbeddingPort {
+  readonly model = 'test-words';
+  async embed(texts: string[]) {
+    return texts.map((t) => Array.from({ length: 16 }, (_, i) => (t.toLowerCase().match(/[a-z]+/g) ?? []).filter((w) => w.length % 16 === i).length));
+  }
+}
+
+test('browser_save_pages: the whole book goes to a Markdown file, page after page, and into a RAG', async () => {
+  const browser = new BookBrowser();
+  await browser.open('u1', 'default', 'https://trusted.example/reader');
+  const workspace = new InMemoryWorkspace();
+  const { agent, stores, sink } = setup({ browser, browserPolicy: policy, workspace, embeddings: new Words() });
+  const p = new ScriptedProvider([
+    () => toolCall('browser_save_pages', { path: 'Books/Accounting', turn: 'click', ref: '@e1', rag: 'Accounting book' }, 'a'),
+    () => text('saved'),
+  ]);
+  await agent.run({ runId: 'r1', model: model(p), history: [user('save the book')], sink });
+
+  assert.equal(stores.runs.created.length, 0, 'a trusted site does not ask');
+  const saved = (await workspace.read('u1', 'Books/Accounting.md')).toString();
+  assert.match(saved, /^# Accounting 101\n\nSource: https:\/\/reader\.example\/b\/1\n/);
+  assert.match(saved, /Chapter 1[\s\S]*FIFO[\s\S]*Depreciation[\s\S]*Accruals/);
+  assert.deepEqual(browser.batches[0], { start: true, turn: { kind: 'click', ref: '@e1' }, pages: 20 });
+  const result = lastTool(p);
+  assert.match(result, /"pages": 3/);
+  assert.match(result, /last page reached/);
+  assert.match(result, /"rag": "accounting-book"/);
+  // The text never came back into the conversation.
+  assert.doesNotMatch(result, /FIFO/);
+});
+
+test('browser_save_pages: one approval for the whole reading on an unknown site; pictures are not text', async () => {
+  const browser = new BookBrowser();
+  await browser.open('u1', 'default', 'https://shop.example/reader');
+  const workspace = new InMemoryWorkspace();
+  const { agent, stores, sink } = setup({ browser, browserPolicy: policy, workspace });
+  const p = new ScriptedProvider([() => toolCall('browser_save_pages', { path: 'Books/B.md', turn: 'click', ref: '@e1', max_pages: 50 }, 'a'), () => text('ok')]);
+  const run = agent.run({ runId: 'r1', model: model(p), history: [user('save it')], sink });
+  while (stores.runs.created.length === 0) await tick();
+  assert.equal(stores.runs.created[0]!.summary, 'Read up to 50 pages on shop.example, clicking "Submit" (button) to turn each page, and save them');
+  assert.equal(stores.runs.created[0]!.details?.file, 'Books/B.md');
+  stores.runs.decide(stores.runs.created[0]!.id, 'approved');
+  await run;
+  assert.equal(stores.runs.created.length, 1, 'asked once, not per page');
+  assert.ok(await workspace.stat('u1', 'Books/B.md'));
+
+  browser.images = true;
+  const q = new ScriptedProvider([() => toolCall('browser_save_pages', { path: 'Books/C.md', turn: 'scroll' }, 'a'), () => text('ok')]);
+  await agent.run({ runId: 'r2', model: model(q), history: [user('save it')], sink });
+  assert.match(lastTool(q), /shows its pages as pictures/);
+  assert.equal(await workspace.stat('u1', 'Books/C.md'), null, 'nothing written');
+});
+
+test('browser_save_pages is offered only with a workspace and a browser that reads page after page', () => {
+  const has = (s: ReturnType<typeof setup>) => s.agent.tools().some((t) => t.name === 'browser_save_pages');
+  assert.equal(has(setup({ browser: new FakeBrowser(), workspace: new InMemoryWorkspace() })), false);
+  assert.equal(has(setup({ browser: new BookBrowser(), workspace: new InMemoryWorkspace() })), true);
+  assert.equal(has(setup({ browser: new BookBrowser() })), false);
 });

@@ -30,7 +30,9 @@ works through four ports, described below.
 What the packs are designed for (and what StudyHawk does with course material):
 
 1. Bring documents into a temporary area. In StudyHawk a Canvas tool downloads
-   them into `TEMP/`.
+   them into `TEMP/`. A text that can only be read in the browser (an online
+   book with no download) is saved with `browser_save_pages`, which can also add
+   it to a RAG in the same call ([Code, web and browser](code-web-browser.md#saving-a-long-text-browser_save_pages)).
 2. `rag_create` a collection, then `rag_add` the files or whole folders. Text is
    extracted, split into chunks of 1,200 characters with 200 of overlap, and
    embedded in batches of 32.
