@@ -1,6 +1,7 @@
 import type { BrowserPort, FetchPort, FetchedPage, SearchPort } from '../ports.js';
 import { asText, assertVisible, cleanPath, RAG_DIR, workspaceOf } from '../tools/files.js';
-import { defineTool, type Tool, type ToolContext } from '../tools/tool.js';
+import { defineTool, type ApprovalText, type GateContext, type Tool, type ToolContext } from '../tools/tool.js';
+import { personalDataGate, personalDataNote } from '../browser/risk.js';
 import { htmlToText } from './html.js';
 
 const MAX_RESULTS = 10;
@@ -76,6 +77,13 @@ async function renderInBrowser(browser: BrowserPort | undefined, ctx: ToolContex
   }
 }
 
+/** The approval for a link that carries the user's data: where it goes, and what of theirs it carries. */
+async function linkApproval(verb: string, url: string, ctx: GateContext): Promise<ApprovalText> {
+  const found = await personalDataNote(ctx, url);
+  const host = URL.canParse(url) ? new URL(url).host : 'a page';
+  return { summary: `${verb} ${host}${found ? `: the link carries your ${found}` : ''}`, details: { url: url.slice(0, 300) } };
+}
+
 export const webSearch = defineTool<{ query: string; limit?: number }>({
   name: 'web_search',
   summary: 'search the web for current information, news, docs and sources',
@@ -93,6 +101,11 @@ export const webSearch = defineTool<{ query: string; limit?: number }>({
   sideEffect: 'none',
   untrusted: true,
   parallelSafe: true,
+  gate: (args, ctx) => personalDataGate(ctx, String(args.query ?? ''), 'search'),
+  async describe(args, ctx): Promise<ApprovalText> {
+    const found = await personalDataNote(ctx, String(args.query ?? ''));
+    return { summary: `Search the web${found ? ` with your ${found} in the query` : ''}`, details: { query: String(args.query ?? '').slice(0, 300) } };
+  },
   async run(args, ctx) {
     const query = String(args.query ?? '').trim().slice(0, 400);
     if (!query) throw new Error('query is empty');
@@ -127,6 +140,8 @@ export const webFetch = defineTool<{ url: string; offset?: number; page?: number
   untrusted: true,
   parallelSafe: true,
   timeoutMs: 90_000,
+  gate: (args, ctx) => personalDataGate(ctx, String(args.url ?? ''), 'link'),
+  describe: (args, ctx) => linkApproval('Read', String(args.url ?? ''), ctx),
   async run(args, ctx) {
     const url = httpUrl(args.url);
     const page = await fetcherOf(ctx).fetch(url, { maxBytes: MAX_FETCH_BYTES, signal: ctx.signal });
@@ -180,6 +195,8 @@ export const webDownload = defineTool<{ url: string; folder?: string }>({
   sideEffect: 'none',
   mainAgentOnly: true,
   timeoutMs: 10 * 60_000,
+  gate: (args, ctx) => personalDataGate(ctx, String(args.url ?? ''), 'link'),
+  describe: (args, ctx) => linkApproval('Download', String(args.url ?? ''), ctx),
   async run(args, ctx) {
     const ws = workspaceOf(ctx);
     const folder = cleanPath(args.folder ?? 'TEMP/web');

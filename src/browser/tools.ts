@@ -1,5 +1,6 @@
 import type { BrowserAction, BrowserElement, BrowserPage, BrowserPort, PageTurn } from '../ports.js';
 import { ragAdd, ragCreate } from '../rag/tools.js';
+import { browserActionRisk, formSummary, personalDataGate, personalDataNote } from './risk.js';
 import { ragId, UserRags } from '../rag/store.js';
 import { assertNotRag, assertVisible, cleanPath, workspaceOf } from '../tools/files.js';
 import { defineTool, type ApprovalText, type GateContext, type Tool, type ToolContext } from '../tools/tool.js';
@@ -29,22 +30,41 @@ function view(page: BrowserPage) {
   };
 }
 
+/** The action a call would make, as the risk reading sees it. */
+type ActionArgs = { profile?: string; ref?: string; text?: string; submit?: boolean; key?: string };
+function actionOf(kind: BrowserAction['kind'], args: ActionArgs): BrowserAction {
+  if (kind === 'type') return { kind, ref: String(args.ref ?? ''), text: String(args.text ?? ''), submit: Boolean(args.submit) };
+  if (kind === 'press') return { kind, key: String(args.key ?? '') };
+  if (kind === 'click') return { kind, ref: String(args.ref ?? '') };
+  return kind === 'scroll' ? { kind, direction: 'down' } : { kind: 'back' };
+}
+
 /**
  * Acting on a page (click, type, keys) is checked against the host's policy
- * for the page it would happen on. Without a policy every action needs the
- * user's approval: a click can submit, buy or delete.
+ * for the page it would happen on, with the element acted on and how risky the
+ * action reads (browserActionRisk): a policy can let routine actions run and ask
+ * only for sensitive ones. Without a policy every action needs the user's
+ * approval: a click can submit, buy or delete.
  */
 function actionGate(kind: BrowserAction['kind']) {
-  return async (args: { profile?: string }, ctx: GateContext): Promise<'run' | 'approve' | { refuse: string }> => {
-    const url = await browserOf(ctx).currentUrl(ctx.user.id, profileOf(args.profile));
+  return async (args: ActionArgs, ctx: GateContext): Promise<'run' | 'approve' | { refuse: string }> => {
+    const browser = browserOf(ctx);
+    const profile = profileOf(args.profile);
+    const url = await browser.currentUrl(ctx.user.id, profile);
     if (!url) return { refuse: 'No page is open in this profile: use browser_open first' };
+    const action = actionOf(kind, args);
+    // A key goes to the focused element; clicks and typing to their ref.
+    const ref = kind === 'press' ? 'focus' : args.ref;
+    const element = ref && browser.element ? await browser.element(ctx.user.id, profile, String(ref)).catch(() => null) : null;
+    const context = { element, risk: browserActionRisk(action, element) };
     if (ctx.runKind !== 'chat') {
       // Nobody is there to approve in scheduled runs and subagents: only what the policy allows outright.
-      const decision = ctx.browserPolicy ? await ctx.browserPolicy(ctx.user.id, url, kind) : 'approve';
-      return decision === 'allow' ? 'run' : { refuse: 'Acting on pages needs the user here; tell them what you would do instead' };
+      const decision = ctx.browserPolicy ? await ctx.browserPolicy(ctx.user.id, url, kind, context) : 'approve';
+      if (typeof decision === 'object') return { refuse: decision.block };
+      return decision === 'allow' ? 'run' : { refuse: `This action (${context.risk.reason}) needs the user here to approve it; tell them what you would do instead` };
     }
     if (!ctx.browserPolicy) return 'approve';
-    const decision = await ctx.browserPolicy(ctx.user.id, url, kind);
+    const decision = await ctx.browserPolicy(ctx.user.id, url, kind, context);
     if (typeof decision === 'object') return { refuse: decision.block };
     return decision === 'allow' ? 'run' : 'approve';
   };
@@ -100,6 +120,12 @@ export const browserOpen = defineTool<{ url: string; profile?: string }>({
   untrusted: true,
   mainAgentOnly: true,
   timeoutMs: BROWSER_TIMEOUT_MS,
+  gate: (args, ctx) => personalDataGate(ctx, String(args.url ?? ''), 'link'),
+  async describe(args, ctx): Promise<ApprovalText> {
+    const url = String(args.url ?? '');
+    const found = await personalDataNote(ctx, url);
+    return { summary: `Open ${pageOf(url) ?? 'a page'}${found ? `: the link carries your ${found}` : ''}`, details: { url: url.slice(0, 300) } };
+  },
   async run(args, ctx) {
     let url: URL;
     try {
@@ -139,9 +165,11 @@ export const browserClick = defineTool<{ ref: string; profile?: string }>({
   async describe(a, ctx): Promise<ApprovalText> {
     const ref = String(a.ref);
     const { page, element, image } = await target(ctx, a.profile, ref);
+    // What leaves with the click: a page's hidden instructions could have the agent send the user's data.
+    const sends = element?.submits ? formSummary(element) : null;
     return {
-      summary: `Click ${named(element, ref)}${on(page)}`,
-      details: { ...(page && { page }), element: element ? `${element.role} "${element.label}"` : ref },
+      summary: `Click ${named(element, ref)}${on(page)}${sends ? ' (sends the form)' : ''}`,
+      details: { ...(page && { page }), element: element ? `${element.role} "${element.label}"` : ref, ...(sends && { sends }) },
       ...(image && { image }),
     };
   },
@@ -197,7 +225,13 @@ export const browserPress = defineTool<{ key: string; profile?: string }>({
   gate: actionGate('press'),
   async describe(a, ctx): Promise<ApprovalText> {
     const { page, image } = await target(ctx, a.profile);
-    return { summary: `Press ${a.key}${on(page) || ' in the browser'}`, details: { ...(page && { page }), key: String(a.key) }, ...(image && { image }) };
+    const focused = /enter/i.test(String(a.key)) && ctx.browser?.element ? await ctx.browser.element(ctx.user.id, profileOf(a.profile), 'focus').catch(() => null) : null;
+    const sends = focused?.form && !focused.form.search ? formSummary(focused) : null;
+    return {
+      summary: `Press ${a.key}${on(page) || ' in the browser'}${sends ? ' (sends the form)' : ''}`,
+      details: { ...(page && { page }), key: String(a.key), ...(sends && { sends }) },
+      ...(image && { image }),
+    };
   },
   async run(args, ctx) {
     const key = String(args.key ?? '').trim();

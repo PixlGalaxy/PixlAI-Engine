@@ -1,6 +1,6 @@
 {
   "name": "pixlai-engine",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "PixlAI-Engine: a multi-user agent engine with tools, steering, approvals, subagents and cron jobs. Storage and models are plugged in through ports.",
   "type": "module",
   "main": "./dist/index.js",

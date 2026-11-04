@@ -1,5 +1,6 @@
 import type {
   BrowserPolicy,
+  PersonalDataSource,
   BrowserPort,
   Clock,
   EmbeddingPort,
@@ -69,6 +70,12 @@ export interface EngineOptions {
    * Without it, every click, typing and key press asks the user.
    */
   browserPolicy?: BrowserPolicy;
+  /**
+   * The user's identifying values (email, school login, full name...). Opening a URL, fetching a page or
+   * searching with one of them in it asks the user first: a page's hidden instructions cannot quietly send
+   * them out. Without it nothing is checked.
+   */
+  personalData?: PersonalDataSource;
   /** Who the agent is and how it behaves. The engine adds the user, memory, skills and rules after it. */
   basePrompt: string;
   /** The host's own tools (its APIs, files...). Built-in memory, skills, cron, time and delegation tools are added. */
@@ -207,6 +214,7 @@ export function createEngine(options: EngineOptions): Engine {
     fetcher: options.fetcher,
     browser: options.browser,
     browserPolicy: options.browserPolicy,
+    personalData: options.personalData,
   };
   const engineLimits: Limits = { ...DEFAULT_LIMITS, ...options.limits };
   const groupNotes = { ...ENGINE_GROUP_NOTES, ...options.toolGroupNotes };
