@@ -287,6 +287,25 @@ export interface BrowserPort {
    * is returned once. Without it browser_save_pages is not offered.
    */
   readPages?(userId: string, profile: string, request: PageReadRequest, signal: AbortSignal): Promise<PageReadBatch>;
+  /**
+   * Optional: runs the agent's own script in the open page (browser_run_js). `code` is the body of an async
+   * function: it may await and returns its result, which must come back as JSON. `frames` "all" runs it in
+   * every frame of the page too. Without it browser_run_js is not offered.
+   */
+  evaluate?(userId: string, profile: string, request: ScriptRequest, signal: AbortSignal): Promise<ScriptResult>;
+}
+
+export interface ScriptRequest {
+  code: string;
+  frames: 'main' | 'all';
+  timeoutMs: number;
+}
+
+export interface ScriptResult {
+  url: string;
+  title: string;
+  /** One per frame it ran in (only the page itself with frames "main"): its result, or why it failed. */
+  results: { frame: string; result?: unknown; error?: string }[];
 }
 
 /** How browser_save_pages gets to the next page. */
@@ -356,7 +375,8 @@ export interface ActionRisk {
 export type BrowserPolicy = (
   userId: string,
   url: string,
-  action: BrowserAction['kind'],
+  /** 'script': the agent's own code in the page (browser_run_js); its risk comes from reading the code. */
+  action: BrowserAction['kind'] | 'script',
   context?: { element: BrowserElement | null; risk: ActionRisk },
 ) => Promise<'allow' | 'approve' | { block: string }>;
 

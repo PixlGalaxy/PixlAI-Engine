@@ -10,6 +10,7 @@ appears only when you pass the port it needs:
 | | `fetcher: FetchPort` | `web_fetch`, and with a `workspace` also `web_download` |
 | browser | `browser: BrowserPort` (+ optional `browserPolicy`) | `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_close` |
 | | `browser.readPages` + `workspace` | `browser_save_pages` ([below](#saving-a-long-text-browser_save_pages)) |
+| | `browser.evaluate` | `browser_run_js` ([below](#the-agents-own-scripts-browser_run_js)) |
 
 ```ts
 const engine = createEngine({
@@ -112,6 +113,8 @@ interface BrowserPort {
   read?(userId, url, signal): Promise<BrowserPage>;
   // Optional: the open page's text as Markdown, page after page, one batch per call (browser_save_pages).
   readPages?(userId, profile, request: PageReadRequest, signal): Promise<PageReadBatch>;
+  // Optional: the agent's own script in the open page (browser_run_js).
+  evaluate?(userId, profile, request: ScriptRequest, signal): Promise<ScriptResult>;
 }
 type BrowserAction =
   | { kind: 'click'; ref: string }
@@ -260,6 +263,11 @@ browser_save_pages({
 });
 ```
 
+After each turn it waits for the page to settle (a reader that reloads its frame shows it empty for a moment), finds
+the "Next" control again even when the reader renames it as it goes ("Next page, 2 of 525"), and only decides that the
+pages are pictures when no page in the first three had real text (a book often opens on its cover). When a reader is
+built in a way it does not follow, its description sends the agent to `browser_run_js`.
+
 It stops at the last page (turning changes nothing, or the next control is gone or disabled), at `max_pages`, or at
 its own limits (20 MB of text, 25 minutes of reading): then the result says it is not finished, and a second call with
 a new path goes on from where the browser is. A reader that draws its pages as pictures (a canvas, page images) has no
@@ -298,6 +306,63 @@ writes headings, lists, quotes, code and tables as Markdown.
 
 The tool is offered only when the port has `readPages` and the engine has a `workspace`. The text is the user's own
 copy, for their own study: keep it in their files, out of anything shared.
+
+## The agent's own scripts: browser_run_js
+
+The other browser tools work one step at a time, and some pages do not fit them: a reader that keeps its text in an
+iframe or a shadow root, a "Next" button that renames itself, a table spread over many pages. `browser_run_js` lets the
+agent **write JavaScript and run it in the open page**, with everything the page has (its DOM, its frames, the reader's
+own functions), and get the result back, or have it written straight into a file:
+
+```ts
+browser_run_js({
+  code: `const out = [];
+    for (let i = 0; i < 600; i++) {
+      out.push(document.querySelector('iframe').contentDocument.body.innerText);
+      const next = document.querySelector('[aria-label^="Next page"]');
+      if (!next || next.disabled) break;
+      next.click();
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    return out.join('\n\n');`,
+  save_to: 'Books/Accounting.md', // optional: the result goes to the file, the conversation gets a preview
+  append: false,                  // with save_to: add to the end instead
+  frames: 'main',                 // 'all': run it in every frame too, to find where the text is
+  timeout_s: 60,                  // at most 120
+});
+```
+
+`code` is the body of an async function: it may `await` and `return`s its result as JSON (cut to 12,000 characters
+in the conversation; use `save_to` for more). A script ends when its page navigates, so on sites that load a new page
+each time the agent runs one script per page and appends.
+
+**When it asks.** The engine reads the code (`scriptRisk(code, personalValues)`) and passes the reading to your
+`BrowserPolicy` as `action: 'script'` with `context.risk`:
+
+| Routine | Sensitive |
+|---|---|
+| Reading the page and its frames, clicking through it (Next, tabs), waiting, returning or saving what it found | The network (`fetch`, `XMLHttpRequest`, `sendBeacon`, `WebSocket`...), loading a URL (`new Image`, `.src =`), cookies and stored data, sending a form (`.submit()`), navigating (`location =`, `window.open`), other windows (`top`, `opener`), names built at run time (`eval`, `window[...]`, `atob`), password or payment fields, a button named in the code that commits something ("Pay now", `:has-text("Submit")`), the user's personal data |
+
+With a policy like StudyHawk's, routine scripts run and sensitive ones ask; the approval shows **the code** and why it
+asks. In scheduled runs and helpers a script counts as sensitive whatever it does, so only sites the policy allows
+outright run it. Reading code cannot be perfect: a script that clicks a button found by its position, not its name, is
+not caught. That is why the reading errs on the side of asking, and why blocking a site (`{ block }`) also blocks its
+scripts.
+
+**The host's side:**
+
+```ts
+interface ScriptRequest { code: string; frames: 'main' | 'all'; timeoutMs: number }
+interface ScriptResult {
+  url: string;
+  title: string;
+  results: { frame: string; result?: unknown; error?: string }[]; // one per frame it ran in
+}
+```
+
+StudyHawk's sandbox runner evaluates the code as an expression through the browser's debugger (so a page's CSP does
+not stop it), stops waiting at the timeout, caps the result at 1,000,000 JSON characters, and says plainly when the
+page navigated under the script. The tool is offered only when the port has `evaluate`.
 
 ## Writing a gate for your own tools
 

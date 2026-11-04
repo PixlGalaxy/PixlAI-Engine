@@ -1,6 +1,6 @@
 import type { BrowserAction, BrowserElement, BrowserPage, BrowserPort, PageTurn } from '../ports.js';
 import { ragAdd, ragCreate } from '../rag/tools.js';
-import { browserActionRisk, formSummary, personalDataGate, personalDataNote } from './risk.js';
+import { browserActionRisk, formSummary, personalDataGate, personalDataNote, scriptRisk } from './risk.js';
 import { ragId, UserRags } from '../rag/store.js';
 import { assertNotRag, assertVisible, cleanPath, workspaceOf } from '../tools/files.js';
 import { defineTool, type ApprovalText, type GateContext, type Tool, type ToolContext } from '../tools/tool.js';
@@ -344,7 +344,9 @@ export const browserSavePages = defineTool<SaveArgs>({
     '"scroll" down a long page, or "none" for only the page that is open. It stops at the last page (nothing changes, or ' +
     'Next is gone or disabled), or at max_pages (default 500). rag: a collection (created if missing) the file is added to ' +
     'when the reading ends, so you can answer from it with rag_ask. A reader that shows its pages as pictures has no text ' +
-    'to save: say so instead of retrying. Only for the student\'s own study: the file stays in their files.',
+    'to save: say so instead of retrying. If it stops after the first page, or says pictures although the page shows text, ' +
+    'the reader is built in a way it does not follow: look at the page with browser_run_js and write a script that reads and ' +
+    'turns the pages (save_to with append). Only for the student\'s own study: the file stays in their files.',
   parameters: {
     type: 'object',
     properties: {
@@ -451,6 +453,121 @@ export const browserSavePages = defineTool<SaveArgs>({
       result.rag = { rag: ragId(name), ...((await ragAdd.run({ rag: ragId(name), paths: [path] }, ctx)) as Record<string, unknown>) };
     }
     return result;
+  },
+});
+
+/** browser_run_js: how long a script may run, and how much of its result the conversation gets. */
+const SCRIPT_TIMEOUT_MS = 60_000;
+const SCRIPT_MAX_TIMEOUT_MS = 120_000;
+const SCRIPT_RESULT_CHARS = 12_000;
+const SCRIPT_SAVE_BYTES = 20 * 1024 * 1024;
+
+type ScriptArgs = { code: string; frames?: string; save_to?: string; append?: boolean; timeout_s?: number; profile?: string };
+
+/** The script's risk as read from its code, with the user's personal values. */
+async function riskOfScript(code: string, ctx: GateContext) {
+  const personal = ctx.personalData ? await ctx.personalData(ctx.user.id).catch(() => [] as string[]) : [];
+  return scriptRisk(code, personal);
+}
+
+/** A result as text to save: strings as they are, anything else as JSON. */
+const asSaved = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+
+export const browserRunJs = defineTool<ScriptArgs>({
+  name: 'browser_run_js',
+  summary: 'write and run your own JavaScript in the open page (read, extract, click through, collect)',
+  description:
+    'Run JavaScript you write in the page open in the browser, with what the page has (its DOM, frames, the reader\'s own ' +
+    'functions): for jobs the other browser tools do badly, such as extracting the text of a reader or a table, walking ' +
+    'through many pages of a book in one go, or finding how a page is built. `code` is the body of an async function: use ' +
+    'await, and `return` the result (JSON). Example: `const out = []; for (let i = 0; i < 50; i++) { out.push(document.querySelector(".page").innerText); ' +
+    'const next = document.querySelector("[aria-label^=\'Next\']"); if (!next || next.disabled) break; next.click(); await new Promise(r => setTimeout(r, 1500)); } return out.join("\\n\\n");` ' +
+    'Readers often keep the text in an iframe or a shadow root: look with a first small script (frames: "all" runs it in every ' +
+    'frame). save_to writes the result straight into a workspace file (Markdown or text; append: true adds to it) instead of ' +
+    'the conversation: use it for long text, then index the file with rag_add. A script ends when the page navigates, so for ' +
+    'sites that load a new page each time, run one script per page (or turn with browser_click) and append. Scripts that only ' +
+    'read and click through run freely; ones that use the network, cookies or stored data, send forms, navigate, hide what ' +
+    'they do or name buttons like Pay or Submit ask the user first. Never use it to sign in (school_sign_in does that) or on Canvas.',
+  parameters: {
+    type: 'object',
+    properties: {
+      code: { type: 'string', description: 'Body of an async function, e.g. "return document.title"' },
+      frames: { type: 'string', enum: ['main', 'all'], description: 'Run in the page only (default) or in every frame too' },
+      save_to: { type: 'string', description: 'Workspace file to write the result into (e.g. "Books/Chapter 1.md"); the answer then has a preview only' },
+      append: { type: 'boolean', description: 'With save_to: add to the end of the file' },
+      timeout_s: { type: 'number', description: `Seconds the script may run (default ${SCRIPT_TIMEOUT_MS / 1000}, at most ${SCRIPT_MAX_TIMEOUT_MS / 1000})` },
+      profile: profileParam,
+    },
+    required: ['code'],
+  },
+  sideEffect: 'none',
+  untrusted: true,
+  mainAgentOnly: true,
+  timeoutMs: SCRIPT_MAX_TIMEOUT_MS + 30_000,
+  async gate(args, ctx) {
+    const browser = browserOf(ctx);
+    const url = await browser.currentUrl(ctx.user.id, profileOf(args.profile));
+    if (!url) return { refuse: 'No page is open in this profile: use browser_open first' };
+    const code = String(args.code ?? '');
+    if (!code.trim()) return { refuse: 'code is empty' };
+    const risk = await riskOfScript(code, ctx);
+    if (ctx.runKind !== 'chat') {
+      // Nobody can approve: a script counts as sensitive whatever it does, so only sites the policy allows outright run it.
+      const decision = ctx.browserPolicy ? await ctx.browserPolicy(ctx.user.id, url, 'script', { element: null, risk: { level: 'sensitive', reason: 'a script with nobody to approve it' } }) : 'approve';
+      if (typeof decision === 'object') return { refuse: decision.block };
+      return decision === 'allow' ? 'run' : { refuse: 'Running a script on this site needs the user here; tell them what you would do instead' };
+    }
+    if (!ctx.browserPolicy) return 'approve';
+    const decision = await ctx.browserPolicy(ctx.user.id, url, 'script', { element: null, risk });
+    if (typeof decision === 'object') return { refuse: decision.block };
+    return decision === 'allow' ? 'run' : 'approve';
+  },
+  async describe(args, ctx): Promise<ApprovalText> {
+    const url = ctx.browser ? await ctx.browser.currentUrl(ctx.user.id, profileOf(args.profile)).catch(() => null) : null;
+    const page = pageOf(url);
+    const code = String(args.code ?? '');
+    const risk = await riskOfScript(code, ctx);
+    return {
+      summary: `Run a script${on(page)} that ${risk.level === 'sensitive' ? risk.reason : 'reads the page'}`,
+      details: { ...(page && { page }), why: risk.reason, code: code.length > 2000 ? `${code.slice(0, 2000)}\n...` : code },
+    };
+  },
+  async run(args, ctx) {
+    const browser = browserOf(ctx);
+    if (!browser.evaluate) throw new Error('Running scripts is not available in this browser');
+    const code = String(args.code ?? '');
+    if (code.length > 100_000) throw new Error('code is longer than 100,000 characters');
+    const timeoutMs = Math.min(Math.max(Math.round((Number(args.timeout_s) || SCRIPT_TIMEOUT_MS / 1000) * 1000), 1000), SCRIPT_MAX_TIMEOUT_MS);
+    const out = await browser.evaluate(ctx.user.id, profileOf(args.profile), { code, frames: args.frames === 'all' ? 'all' : 'main', timeoutMs }, ctx.signal);
+    const ok = out.results.filter((r) => r.error === undefined);
+    if (args.save_to) {
+      const ws = workspaceOf(ctx);
+      const path = cleanPath(args.save_to);
+      if (!path) throw new Error('save_to: a file path, e.g. "Books/Chapter 1.md"');
+      assertNotRag(path);
+      assertVisible(ws, path);
+      const text = ok.map((r) => asSaved(r.result)).filter((t) => t && t !== 'null').join('\n\n');
+      if (Buffer.byteLength(text) > SCRIPT_SAVE_BYTES) throw new Error('The result is larger than 20 MB: save it in parts');
+      if (text) await ws.write(ctx.user.id, path, args.append ? `${text}\n\n` : `${text}\n`, { append: args.append === true });
+      return {
+        url: out.url,
+        saved: text ? path : null,
+        appended: args.append === true,
+        characters: text.length,
+        preview: text.slice(0, 1500),
+        ...(out.results.some((r) => r.error) && { errors: out.results.filter((r) => r.error).map((r) => ({ frame: r.frame, error: r.error })) }),
+        ...(!text && { note: 'The script returned nothing, so nothing was saved.' }),
+      };
+    }
+    const shown = out.results.map((r) => (r.error !== undefined ? { frame: r.frame, error: r.error } : { frame: r.frame, result: r.result }));
+    const json = JSON.stringify(args.frames === 'all' ? shown : (shown[0] ?? null));
+    const clipped = json.length > SCRIPT_RESULT_CHARS;
+    return {
+      url: out.url,
+      title: out.title,
+      [args.frames === 'all' ? 'frames' : 'result']: clipped ? `${json.slice(0, SCRIPT_RESULT_CHARS)}...` : JSON.parse(json),
+      ...(clipped && { note: `The result was cut to ${SCRIPT_RESULT_CHARS} characters: return less, or pass save_to to keep it whole in a file.` }),
+    };
   },
 });
 

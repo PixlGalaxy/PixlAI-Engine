@@ -2,6 +2,17 @@
 
 All notable changes to PixlAI-Engine. Every breaking change is listed under **Breaking**.
 
+## 1.4.0 (2026-11-04)
+
+### Added
+
+- **`browser_run_js`: the agent writes and runs its own JavaScript in the page.** For what the step-by-step browser tools do badly: reading a reader that keeps its text in an iframe or a shadow root, walking through hundreds of pages in one script, extracting a table. `code` is the body of an async function; the result comes back as JSON or, with `save_to` (and `append`), goes straight into a workspace file. Scripts that only read and click through run freely under a risk-based policy; scripts that use the network, cookies or stored data, send forms, navigate, hide what they call, touch password or payment fields, name a button that commits something or carry the user's data ask, and the approval shows the code. In scheduled runs only sites the policy allows outright run scripts. See [The agent's own scripts](docs/code-web-browser.md#the-agents-own-scripts-browser_run_js).
+- **`BrowserPort.evaluate(userId, profile, request, signal)`** (optional), with `ScriptRequest` and `ScriptResult`. `BrowserPolicy` may now be asked about `action: 'script'`. `scriptRisk(code, personalValues)` and `browserRunJs` are exported.
+
+### Fixed
+
+- **`browser_save_pages` stopped after the first page of some readers**, and said their pages were pictures. It now finds the "Next" control again when the reader renames it as it goes ("Next page, 2 of 525"), waits after each turn until the page stops changing (a reader that reloads its frame shows it empty for a moment, which was taken as the next page), and only decides there is no text when no page in the first three had any (a book often opens on its cover). When it still does not fit a reader, its description sends the agent to `browser_run_js`.
+
 ## 1.3.0 (2026-11-03)
 
 ### Added
