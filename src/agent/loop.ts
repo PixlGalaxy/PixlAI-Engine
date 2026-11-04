@@ -1,5 +1,5 @@
 import type {
-  BrowserPolicy,
+  BrowserPolicy, PersonalDataSource,
   BrowserPort,
   Clock,
   EmbeddingPort,
@@ -78,6 +78,7 @@ export interface Services {
   fetcher?: FetchPort;
   browser?: BrowserPort;
   browserPolicy?: BrowserPolicy;
+  personalData?: PersonalDataSource;
 }
 
 /** Shared by a run and all its subagents. */
@@ -173,7 +174,7 @@ export async function runToolOnce(input: {
   const { services, user, limits, tools, name, args } = input;
   const tool = tools.get(name);
   if (!tool) return { status: 'error', content: stringify({ error: `Tool "${name}" does not exist` }), untrusted: false };
-  const gateCtx = { user, runKind: 'chat' as const, host: input.host, browser: services.browser, browserPolicy: services.browserPolicy, workspace: services.workspace };
+  const gateCtx = { user, runKind: 'chat' as const, host: input.host, browser: services.browser, browserPolicy: services.browserPolicy, workspace: services.workspace, personalData: services.personalData };
   try {
     const gate = tool.gate ? await tool.gate(args, gateCtx) : 'run';
     if (typeof gate === 'object') return { status: 'error', content: stringify({ error: gate.refuse }), untrusted: false };
@@ -205,6 +206,7 @@ export async function runToolOnce(input: {
     fetcher: services.fetcher,
     browser: services.browser,
     browserPolicy: services.browserPolicy,
+    personalData: services.personalData,
     complete: () => Promise.reject(new Error('No model is available outside a conversation')),
     clock: services.clock,
     logger: services.logger,
@@ -526,7 +528,7 @@ export async function runLoop(input: LoopInput): Promise<RunResult> {
     }
     if (signal.aborted) return finish('error', stringify({ error: 'Skipped: the run was cancelled' }));
 
-    const gateCtx = { user, runKind: input.kind, host: input.host, browser: services.browser, browserPolicy: services.browserPolicy, workspace: services.workspace };
+    const gateCtx = { user, runKind: input.kind, host: input.host, browser: services.browser, browserPolicy: services.browserPolicy, workspace: services.workspace, personalData: services.personalData };
     let gate: 'run' | 'approve' | { refuse: string } = 'run';
     if (tool.gate) {
       try {
@@ -592,6 +594,7 @@ export async function runLoop(input: LoopInput): Promise<RunResult> {
       fetcher: services.fetcher,
       browser: services.browser,
       browserPolicy: services.browserPolicy,
+      personalData: services.personalData,
       complete: (system: string, prompt: string) => completeOnce(system, prompt, toolSignal),
       clock: services.clock,
       logger: services.logger,

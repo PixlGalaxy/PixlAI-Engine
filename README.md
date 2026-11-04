@@ -85,7 +85,7 @@ const result = await agent.run({
 | `SharedRagSource` | Optional. Read-only RAGs built by someone else (e.g. an instructor). |
 | `SandboxPort` | Optional. Runs code where the workspace is the working tree. Enables `code_run`. |
 | `SearchPort`, `FetchPort` | Optional. Web search and safe downloads. Enable the web pack. |
-| `BrowserPort`, `BrowserPolicy` | Optional. A real browser per user with cookie profiles, and which actions run, ask or are blocked. With `readPages`, the agent can also save a long text it reads online (a book with no download) into a Markdown file and a RAG. |
+| `BrowserPort`, `BrowserPolicy` | Optional. A real browser per user with cookie profiles, and which actions run, ask or are blocked (the policy gets each action's risk: routine or sensitive). With `readPages`, the agent can also save a long text it reads online (a book with no download) into a Markdown file and a RAG. |
 | `Logger`, `Clock` | Optional. |
 
 `InMemory*Store` classes implement every store for tests and single-process hosts.

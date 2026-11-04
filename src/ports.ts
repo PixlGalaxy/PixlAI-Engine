@@ -265,8 +265,10 @@ export interface BrowserPort {
    */
   screenshot(userId: string, profile: string, signal: AbortSignal, options?: { highlight?: string; jpeg?: boolean }): Promise<{ path: string }>;
   /**
-   * Optional: what a ref from the latest snapshot is ("button", "Sign in"), so approvals can name it. Null
-   * when it is gone; hosts without it get approvals that only give the ref.
+   * Optional: what a ref from the latest snapshot is ("button", "Sign in"), so approvals can name it and the
+   * risk of an action can be told (see browserActionRisk). `ref` "focus" is the element that has the focus
+   * (what a key press goes to). Null when it is gone; hosts without it get approvals that only give the ref,
+   * and every action counts as sensitive.
    */
   element?(userId: string, profile: string, ref: string): Promise<BrowserElement | null>;
   /** URL of the open page, or null when the profile has no page open. */
@@ -318,14 +320,48 @@ export interface BrowserElement {
   label: string;
   /** A password field: what is typed into it is never shown back. */
   password: boolean;
+  /** Optional, for telling routine actions from sensitive ones. A field: what it takes. */
+  field?: 'password' | 'payment' | 'email' | 'search' | 'text' | 'other';
+  /** A link that goes to another page (not a button dressed as one). */
+  link?: boolean;
+  /** Clicking it sends its form (a submit button), or for the focused field, Enter would. */
+  submits?: boolean;
+  /** The form it belongs to, when it is in one: what sending it would send. */
+  form?: BrowserForm;
+}
+
+export interface BrowserForm {
+  /** A search box (role="search", a search field, or a form whose only field is a query). */
+  search: boolean;
+  password: boolean;
+  payment: boolean;
+  /** Its filled fields as the user would see them (passwords as dots), for the approval. */
+  fields: { label: string; value: string }[];
+}
+
+/** How risky a browser action is: routine (reading, navigating, filling in) or sensitive (signing in, sending, paying, deleting). */
+export interface ActionRisk {
+  level: 'routine' | 'sensitive';
+  /** Why, in a few words ("sends a form", "a password field", "unknown element"). */
+  reason: string;
 }
 
 /**
  * Decides, per action and page, whether the agent may act freely, must ask the
- * user, or may not act at all (e.g. a site that must stay read-only).
+ * user, or may not act at all (e.g. a site that must stay read-only). `context`
+ * (from this version on) has the element acted on and the engine's reading of
+ * how risky the action is, so a policy can let routine actions run and ask only
+ * for sensitive ones.
  */
 export type BrowserPolicy = (
   userId: string,
   url: string,
   action: BrowserAction['kind'],
+  context?: { element: BrowserElement | null; risk: ActionRisk },
 ) => Promise<'allow' | 'approve' | { block: string }>;
+
+/**
+ * The user's own identifying values (their email, school login, full name...): a tool call that would carry
+ * one of them to a third party in a URL or a query asks first. Values shorter than 4 characters are ignored.
+ */
+export type PersonalDataSource = (userId: string) => Promise<string[]>;

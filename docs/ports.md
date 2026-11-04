@@ -16,7 +16,8 @@ The engine knows nothing about databases, HTTP or model vendors. You plug those 
 | `SharedRagSource` | Optional: read-only RAGs from others | none |
 | `SandboxPort` | Optional: code execution (enables `code_run`) | none |
 | `SearchPort`, `FetchPort` | Optional: web search and downloads (web pack) | none |
-| `BrowserPort`, `BrowserPolicy` | Optional: a browser per user and its action policy | none |
+| `BrowserPort`, `BrowserPolicy` | Optional: a browser per user and its action policy (which gets each action's risk) | none |
+| `PersonalDataSource` (`personalData`) | Optional: the user's email, logins and name, so links and searches that carry them ask first | none |
 | `Logger`, `Clock` | Optional: logging and time | console logger, `new Date()` |
 
 The `InMemory*` classes keep state in the process and lose it on restart. They are for tests, demos and single-process hosts.

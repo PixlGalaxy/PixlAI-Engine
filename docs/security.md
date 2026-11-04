@@ -14,6 +14,7 @@ An agent reads things other people wrote (web pages, emails, documents) and can 
 | A run never ends | `maxSteps`, `maxTokens`, `toolTimeoutMs` and `approvalTimeoutMs` bound every run. The last step has no tools and asks for a summary. |
 | A path escapes the user's files | `cleanPath` rejects `..` in every files and rag tool before your `WorkspacePort` sees it. The `.rag/` folder can only be changed by the rag tools. |
 | A scheduled run reschedules itself forever | Scheduled runs cannot use the `cron_*` tools. |
+| A page's hidden instructions get the agent to send the user's data out | Sending a form in the browser is a sensitive action: with a `BrowserPolicy` that asks for those, the approval shows what the form would send. With `personalData`, a URL or search that carries the user's email, login or name asks first (refused where nobody can approve). See [Code, web and browser](code-web-browser.md#links-that-carry-the-users-data). |
 
 ## What the host must do
 
@@ -22,7 +23,8 @@ The engine has no network, file system or database access of its own. The ports 
 - **Approvals reach the right person.** `createApproval` and `waitForApproval` are yours: only the run's user may decide, and an expired approval must not be decided later.
 - **`FetchPort` blocks internal addresses.** `web_fetch` and `web_download` go wherever the model says. Your fetcher must resolve the host name, refuse private, loopback and link-local ranges (including `169.254.169.254`), connect to the address it checked, and check again after every redirect. StudyHawk' `SafeFetch` is a complete example.
 - **`SandboxPort` isolates code.** `code_run` executes whatever the model writes. Run it in a container or VM with no host mounts except the user's workspace, no privileges, CPU, memory and process limits, and the network policy you want.
-- **`BrowserPolicy` decides where the agent may act.** The browser pack reads anything, asks before acting on sites the user has not trusted, and refuses domains you block. Put every site where an action would be harmful (submitting coursework, payments) in `blocked`.
+- **`BrowserPolicy` decides where the agent may act.** It gets each action with the element and the engine's risk reading (`routine` or `sensitive`): allow routine actions if you like, ask for sensitive ones (signing in, sending a form, paying, deleting), and block sites where any action would be harmful (submitting coursework, payments).
+- **`personalData` names what must not leave quietly.** Return the user's email, logins and full name so links and searches that carry them ask first.
 - **`WorkspacePort` enforces quotas** and keeps each user in their own root.
 - **Stores scope by `userId`** in every query, including `load` and `remove` by id.
 - **`MemoryStore.write` can refuse.** Throw when the user turned memory off; the agent reads the message. The `memory_update` description already tells the model never to save passwords or codes, but if you need a hard guarantee, check the content in `write`.

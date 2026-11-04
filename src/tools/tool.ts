@@ -1,6 +1,7 @@
 import type {
   BrowserPolicy,
   BrowserPort,
+  PersonalDataSource,
   Clock,
   EmbeddingPort,
   FetchPort,
@@ -47,6 +48,8 @@ export interface ToolContext {
   /** A real browser per user (browser pack) and the rule for acting on pages. */
   browser?: BrowserPort;
   browserPolicy?: BrowserPolicy;
+  /** The user's identifying values: a URL or query that carries one asks first (see EngineOptions.personalData). */
+  personalData?: PersonalDataSource;
   /**
    * One extra call to the run's own model, outside the conversation (no tools,
    * no history): for summarizing or answering from retrieved text without
@@ -81,7 +84,7 @@ export interface ToolContext {
 export type RunKind = 'chat' | 'scheduled' | 'subagent';
 
 /** What a gate can look at: who runs, which kind of run, and the host's services. */
-export type GateContext = Pick<ToolContext, 'user' | 'runKind' | 'host' | 'browser' | 'browserPolicy' | 'workspace'>;
+export type GateContext = Pick<ToolContext, 'user' | 'runKind' | 'host' | 'browser' | 'browserPolicy' | 'workspace' | 'personalData'>;
 
 /** What an approval card shows: one line, plus the fields worth reading before approving. */
 export interface ApprovalText {

@@ -2,6 +2,20 @@
 
 All notable changes to PixlAI-Engine. Every breaking change is listed under **Breaking**.
 
+## 1.3.0 (2026-11-03)
+
+### Added
+
+- **Browser actions are read as routine or sensitive.** `browserActionRisk(action, element)` reads what an action does: links, menus, "Next", typing into an ordinary field, searching and keys that send nothing are routine; typing a password or payment details, sending a form (its submit button, `submit: true`, or Enter in it), buttons that commit something (Send, Pay, Delete, Sign in, Accept...) and elements that cannot be described are sensitive. The browser gate passes the element and that reading to the policy, so a host can ask only for what matters. See [Routine or sensitive](docs/code-web-browser.md#routine-or-sensitive-browseractionrisk).
+- **Approvals for sending a form show what it would send.** `browser_click` on a submit button and `browser_press` Enter in a form carry `details.sends`: each filled field with its label (passwords as dots). If a page's hidden instructions got the agent to put the user's data in a form, the user sees it first.
+- **Links and searches that carry the user's data ask first.** With `EngineOptions.personalData` (`PersonalDataSource`: the user's email, logins, full name), `browser_open`, `web_fetch`, `web_download` and `web_search` ask the user when the URL or query carries one of those values (as it is, URL-encoded or in base64), and are refused where nobody can approve. See [Links that carry the user's data](docs/code-web-browser.md#links-that-carry-the-users-data).
+- **`BrowserElement` says more**, all optional: `field` (password, payment, email, search, text), `link`, `submits`, and `form` (`BrowserForm`: search or not, password and payment fields, the filled fields). `BrowserPort.element` takes the ref `"focus"` for the element a key press goes to.
+- Exported: `browserActionRisk`, `formSummary`, `findPersonalData`, `personalDataGate`, and the types `ActionRisk`, `BrowserForm`, `PersonalDataSource`.
+
+### Changed
+
+- **`BrowserPolicy` gets a fourth argument**, `context: { element, risk }`. Policies written for the three-argument form keep working unchanged. In scheduled runs, a refusal now says why the action needed the user ("sends the form").
+
 ## 1.2.0 (2026-11-03)
 
 ### Added

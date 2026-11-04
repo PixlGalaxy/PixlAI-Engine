@@ -8,7 +8,7 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 |---|---|
 | `createEngine(options)` | Builds the engine once per process: stores, base prompt, your tools and the optional ports. [Getting started](getting-started.md) |
 | `Engine` | `forUser(user, { limits?, host? })` returns a `UserAgent`. |
-| `EngineOptions` | `stores`, `basePrompt`, `tools?`, `disableBuiltins?`, `limits?`, `logger?`, `clock?`, and the optional ports (`workspace`, `extractor`, `embeddings`, `sharedRags`, `sandbox`, `search`, `fetcher`, `browser`, `browserPolicy`). |
+| `EngineOptions` | `stores`, `basePrompt`, `tools?`, `disableBuiltins?`, `limits?`, `logger?`, `clock?`, and the optional ports (`workspace`, `extractor`, `embeddings`, `sharedRags`, `sandbox`, `search`, `fetcher`, `browser`, `browserPolicy`, `personalData`). |
 | `UserAgent` | `run(options)`, `runSubagents(options)`, `callTool(name, args, options?)` (one tool outside a conversation, e.g. for an MCP server: same gates, timeout and untrusted wrapping; tools that need an approval are refused), `tools()`, `user`, `limits`. |
 | `RunOptions` | `runId`, `model`, `history`, `sink`, `signal?`, `kind?` (`chat` / `scheduled`), `toolFilter?`, `reasoning?`, `notes?` (the host's notes for this run, added to the system prompt and inherited by helpers), `startBackground?`, `helperModels?`. [Concepts](concepts.md#runs-and-the-loop) |
 | `SubagentRunOptions` | `runId`, `model`, `tasks`, `sink`, `signal?`, `toolFilter?`, `helperModels?`, `notes?`, for background helpers. [Concepts](concepts.md#background-delegation) |
@@ -59,6 +59,8 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 | `CODE_TOOLS`, `codeRun`, `clipMiddle` | `code_run` over a `SandboxPort`. [Code, web and browser](code-web-browser.md) |
 | `WEB_TOOLS`, `webSearch`, `webFetch`, `webDownload`, `htmlToText`, `decodeEntities` | The web pack and its HTML-to-text helpers. |
 | `BROWSER_TOOLS` | `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_close`. |
+| `browserActionRisk(action, element)`, `formSummary(element)` | The routine/sensitive reading of a browser action, and what a form would send (as approvals show it). |
+| `findPersonalData(text, values)`, `personalDataGate(ctx, text, what)` | Whether a URL or query carries one of the user's values, and the gate the web and browser tools use for it. |
 | `browserSavePages` | `browser_save_pages`: a long text read in the browser, page after page, into a Markdown file (and a RAG). Added when the browser has `readPages` and there is a workspace. [Code, web and browser](code-web-browser.md#saving-a-long-text-browser_save_pages) |
 | `wrapUntrusted(source, text)`, `steerContent(text)` | The wrappers for third-party text and for steers. [Security](security.md) |
 
@@ -97,6 +99,8 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 | `SearchPort`, `SearchHit`, `FetchPort`, `FetchedPage` | Web search and fetching. |
 | `SearchChain`, `SearchProvider`, `SearchChainOptions` | A `SearchPort` over several providers: next one on failure or no results, failed ones cool down. [Docs](code-web-browser.md#several-search-providers-searchchain) |
 | `BrowserPort`, `BrowserPage`, `BrowserAction`, `BrowserPolicy` | A real browser and where it may act. |
+| `BrowserElement`, `BrowserForm`, `ActionRisk` | What an action is done on, and how risky it reads. [Routine or sensitive](code-web-browser.md#routine-or-sensitive-browseractionrisk) |
+| `PersonalDataSource` | `EngineOptions.personalData`: the user's identifying values. [Links that carry the user's data](code-web-browser.md#links-that-carry-the-users-data) |
 | `PageTurn`, `PageReadRequest`, `PageReadBatch` | `BrowserPort.readPages`: how to reach the next page, and one batch of read text. |
 | `Logger`, `Clock` | Optional logging and time source. |
 
