@@ -2,6 +2,13 @@
 
 All notable changes to PixlAI-Engine. Every breaking change is listed under **Breaking**.
 
+## 1.5.0 (2026-11-04)
+
+### Added
+
+- **Programs that drive a browser: `code_run` with `browser_sites`.** A program in the sandbox gets a browser of its own to drive (for example with Playwright's `connect_over_cdp`), signed in to the declared sites only: for jobs bigger than one script in one page, such as a book whose reader loads a new page each time. The engine reads the code (`programRisk`) and asks the browser policy about each site (`action: 'script'`); with a risk-based policy, programs that open their sites, read, click through and write files run freely, and ones that use the network outside the browser, cookies, forms, code built at run time, undeclared sites, password or payment fields, buttons that commit or the user's data ask, showing the code. A blocked site refuses the run; where nobody can approve, only sites the policy allows outright. See [Programs that drive a browser](docs/code-web-browser.md#programs-that-drive-a-browser-code_run-with-browser_sites).
+- **`ExecRequest.browser`** (`{ sites }`): what the host gets for such a run. Hosts that do not support it can ignore it. `programRisk` and `siteOf` are exported.
+
 ## 1.4.0 (2026-11-04)
 
 ### Added
