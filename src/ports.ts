@@ -178,6 +178,12 @@ export interface ExecRequest {
   /** Working directory relative to the user's workspace root ("" is the root). */
   cwd: string;
   timeoutMs: number;
+  /**
+   * A browser for the program (code_run with browser_sites): the host starts one the program can drive (for
+   * example over the Chrome DevTools Protocol, its address in an environment variable), holding the user's
+   * sign-ins for these sites only, and closes it when the program ends. Hosts that cannot ignore it.
+   */
+  browser?: { sites: string[] };
 }
 
 export interface ExecResult {

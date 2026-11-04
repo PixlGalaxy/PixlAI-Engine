@@ -17,7 +17,7 @@ export { questionsAsText } from './tools/core.js';
 export { SearchChain, type SearchChainOptions, type SearchProvider } from './web/search-chain.js';
 export { htmlToText, decodeEntities } from './web/html.js';
 export { BROWSER_TOOLS, browserRunJs, browserSavePages } from './browser/tools.js';
-export { browserActionRisk, findPersonalData, formSummary, personalDataGate, scriptRisk } from './browser/risk.js';
+export { browserActionRisk, findPersonalData, formSummary, personalDataGate, programRisk, scriptRisk, siteOf } from './browser/risk.js';
 export { chunkPages, ragId, UserRags, type RagManifest, type RagSource, type Chunk } from './rag/store.js';
 export { CRON_TOOLS, SCHEDULED_RUN_NOTE } from './cron/tools.js';
 export { isValidTimezone, nextRun, parseSchedule, planSchedule, MIN_INTERVAL_MS, type ParsedSchedule } from './cron/schedule.js';

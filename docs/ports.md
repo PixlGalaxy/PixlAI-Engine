@@ -17,6 +17,7 @@ The engine knows nothing about databases, HTTP or model vendors. You plug those 
 | `SandboxPort` | Optional: code execution (enables `code_run`) | none |
 | `SearchPort`, `FetchPort` | Optional: web search and downloads (web pack) | none |
 | `BrowserPort`, `BrowserPolicy` | Optional: a browser per user and its action policy (which gets each action's risk) | none |
+| `ExecRequest.browser` | Optional, on `SandboxPort.exec`: `{ sites }` when `code_run` asks for a browser of its own (start one with the user's sign-ins for those sites only, close it after) | ignored |
 | `PersonalDataSource` (`personalData`) | Optional: the user's email, logins and name, so links and searches that carry them ask first | none |
 | `Logger`, `Clock` | Optional: logging and time | console logger, `new Date()` |
 

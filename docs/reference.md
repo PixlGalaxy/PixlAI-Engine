@@ -59,6 +59,7 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 | `CODE_TOOLS`, `codeRun`, `clipMiddle` | `code_run` over a `SandboxPort`. [Code, web and browser](code-web-browser.md) |
 | `WEB_TOOLS`, `webSearch`, `webFetch`, `webDownload`, `htmlToText`, `decodeEntities` | The web pack and its HTML-to-text helpers. |
 | `BROWSER_TOOLS` | `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_close`. |
+| `programRisk(code, sites, personalValues)`, `siteOf(raw)` | How risky a program that drives a browser reads (code_run with `browser_sites`), and a declared site as a host name. [Programs that drive a browser](code-web-browser.md#programs-that-drive-a-browser-code_run-with-browser_sites) |
 | `browserRunJs`, `scriptRisk(code, personalValues)` | `browser_run_js` (the agent's own JavaScript in the page; added when the browser has `evaluate`) and its reading of a script's risk. [The agent's own scripts](code-web-browser.md#the-agents-own-scripts-browser_run_js) |
 | `ScriptRequest`, `ScriptResult` | `BrowserPort.evaluate`: a script to run, and what each frame returned. |
 | `browserActionRisk(action, element)`, `formSummary(element)` | The routine/sensitive reading of a browser action, and what a form would send (as approvals show it). |

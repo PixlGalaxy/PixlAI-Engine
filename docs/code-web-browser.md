@@ -5,7 +5,7 @@ appears only when you pass the port it needs:
 
 | Pack | Option | Tools |
 |---|---|---|
-| code | `sandbox: SandboxPort` | `code_run` |
+| code | `sandbox: SandboxPort` | `code_run` (with `browser_sites` and a `browser`: a program that drives a browser of its own, [below](#programs-that-drive-a-browser-code_run-with-browser_sites)) |
 | web | `search: SearchPort` | `web_search` |
 | | `fetcher: FetchPort` | `web_fetch`, and with a `workspace` also `web_download` |
 | browser | `browser: BrowserPort` (+ optional `browserPolicy`) | `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_close` |
@@ -363,6 +363,62 @@ interface ScriptResult {
 StudyHawk's sandbox runner evaluates the code as an expression through the browser's debugger (so a page's CSP does
 not stop it), stops waiting at the timeout, caps the result at 1,000,000 JSON characters, and says plainly when the
 page navigated under the script. The tool is offered only when the port has `evaluate`.
+
+## Programs that drive a browser: code_run with browser_sites
+
+Some jobs are bigger than one script in one page: a book whose reader loads a new page each time (a script ends with
+its page), hundreds of pages to clean up and save as they come, a site to walk while Python processes what it finds.
+For those, `code_run` takes `browser_sites`: the program gets **a browser of its own** to drive, the way an agent like
+Hermes drives one from its sandbox.
+
+```ts
+code_run({
+  language: 'python',
+  browser_sites: ['reader.example.com'],
+  code: `import os
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    browser = p.chromium.connect_over_cdp(os.environ["STUDYHAWK_BROWSER"])
+    page = browser.contexts[0].new_page()
+    page.goto("https://reader.example.com/book/1")
+    with open("Books/Book.md", "w") as out:
+        while True:
+            out.write(page.locator(".page-text").inner_text() + "\n\n")
+            nxt = page.locator("[aria-label^='Next page']")
+            if nxt.is_disabled():
+                break
+            nxt.click()
+            page.wait_for_timeout(1500)
+`,
+});
+```
+
+What the engine does is small: it reads the code (`programRisk(code, sites, personalValues)`), asks your
+`BrowserPolicy` about each declared site with `action: 'script'`, and passes `browser: { sites }` in the `ExecRequest`.
+The rest is the host's job, and it is where the safety lives:
+
+- **A browser of its own, only for this run.** Not the agent's profile: a separate browser the program reaches at a
+  local address (StudyHawk: a Chromium in the sandbox with a debugging port on 127.0.0.1, its address in
+  `STUDYHAWK_BROWSER`, closed when the program ends).
+- **Only the sign-ins of the declared sites.** Copy the user's cookies for those sites (and their subdomains) into it,
+  and nothing else: a program declared for a book reader has no email, school or Canvas session to misuse. Some sites
+  keep their session in `localStorage` too (McGraw Hill's e-book reader): StudyHawk also copies those sites'
+  `localStorage` from the agent's open browser.
+- **Sign in with the agent's browser first.** A program cannot go through a sign-in that lives on a site it must not
+  touch. A tool reached from Canvas (McGraw Hill Connect, Pearson) is launched with `canvas_tool_open` in the agent's
+  browser, which leaves that tool's session there; the program then declares the tool's site (`mheducation.com`) and
+  gets it.
+- **Sites that must stay untouched stay out.** StudyHawk passes the student's Canvas host as `exclude`: no cookies for
+  it, and the browser refuses to open its pages.
+
+**When it asks** (with StudyHawk's policy): a program that opens its declared sites, reads them, clicks through and
+writes files runs freely. It asks, showing the code, when the code talks to the network outside the browser
+(`requests`, `urllib`, `fetch`, `page.request`...), touches cookies or stored sign-ins (`storage_state`, `cookies()`),
+sends a form (`.submit()`, pressing Enter), builds or starts other code (`eval`, `exec`, `base64`, `subprocess`),
+names an address on a site it did not declare, touches password or payment fields, names a button that commits
+something ("Pay now", `text=Submit`), or carries the user's personal data. A blocked site (Canvas) refuses the run. In
+scheduled runs and helpers a program counts as sensitive whatever it does, so only sites the policy allows outright
+run it. Without `browser_sites`, `code_run` is unchanged.
 
 ## Writing a gate for your own tools
 
