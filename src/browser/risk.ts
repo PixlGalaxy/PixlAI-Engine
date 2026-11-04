@@ -60,6 +60,41 @@ export function browserActionRisk(action: BrowserAction, element: BrowserElement
   return routine('a click that sends nothing');
 }
 
+/**
+ * What a script the agent wrote would do that matters (browser_run_js), from reading its code: talking to
+ * the network, reading cookies or stored data, sending forms, navigating away with data, hiding what it does,
+ * naming a button that commits something, touching password or payment fields, or carrying the user's data.
+ * Code that only reads the page, clicks through it and returns what it found is routine. Reading code cannot
+ * be perfect (that is why it errs on the side of asking): a script that clicks a button found by position is
+ * not caught.
+ */
+export function scriptRisk(code: string, personal: string[] = []): ActionRisk {
+  const checks: [RegExp, string][] = [
+    [/\b(fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|RTCPeerConnection|importScripts)\b|\bimport\s*\(/, 'talks to the network'],
+    [/\bnew\s+Image\b|\.src\s*=(?!=)|\bsetAttribute\s*\(\s*['"`](src|href|action)['"`]/, 'loads a URL (which can carry data out)'],
+    [/document\.cookie|\b(localStorage|sessionStorage|indexedDB|caches|navigator\.credentials)\b/, 'reads cookies or stored data'],
+    [/\.(submit|requestSubmit)\s*\(|new\s+SubmitEvent/, 'sends a form'],
+    [/\b(location|window\.location|document\.location)\s*(\.href\s*)?=(?!=)|location\.(assign|replace)\s*\(|window\.open\s*\(|\.href\s*=(?!=)/, 'navigates (a URL can carry data out)'],
+    // Names built at run time (window["fe" + "tch"], document["coo" + "kie"]) hide what is called.
+    [/\beval\s*\(|\bnew\s+Function\b|\bFunction\s*\(|\batob\s*\(|\b(window|globalThis|self|top|parent|document|navigator)\s*\[|String\.fromCharCode|\bReflect\.|\bProxy\b/, 'hides what it does'],
+    [/\b(top|parent|opener)\s*\./, 'reaches other windows'],
+    [/type\s*=\s*['"]?password|\bpassword\b|autocomplete\s*[*^$]?=\s*['"]?cc-|card.?number|\bcvv\b|\bcvc\b/i, 'touches a password or payment field'],
+  ];
+  for (const [pattern, reason] of checks) if (pattern.test(code)) return sensitive(reason);
+  // A button named in the code ('Pay', "Submit"...): the click it is there for may commit something.
+  // Literals that read like a button's name; in CSS selectors (".book-page") only the names they quote.
+  for (const literal of code.match(/(['"`])(?:\\.|(?!\1).){1,80}\1/g) ?? []) {
+    const words = literal.slice(1, -1);
+    // In a selector, only the names inside it count: [aria-label='Pay now'], :has-text("Submit").
+    const names = /[.#[\]=>:/]/.test(words) ? [...words.matchAll(/(?:=\s*|text\(\s*|contains\(\s*)['"]?([^'"\])]+)/g)].map((m) => m[1]!) : [words];
+    const hit = names.find((name) => COMMITS.test(name));
+    if (hit) return sensitive(`names "${hit.slice(0, 40)}"`);
+  }
+  const found = findPersonalData(code, personal);
+  if (found) return sensitive(`carries the user's ${found}`);
+  return routine('reads and moves through the page');
+}
+
 /** The approval's view of what sending the form would send (passwords already come as dots). */
 export function formSummary(element: BrowserElement | null): string | null {
   const fields = element?.form?.fields ?? [];

