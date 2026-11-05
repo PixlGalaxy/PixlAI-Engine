@@ -294,6 +294,14 @@ export interface BrowserPort {
    */
   readPages?(userId: string, profile: string, request: PageReadRequest, signal: AbortSignal): Promise<PageReadBatch>;
   /**
+   * Optional: reads the e-book the open reader shows from its own package (an EPUB: `content.opf`, its spine and
+   * the chapter files), fetched inside the reader with its own session, for browser_save_book. One call is one
+   * batch of chapters: `start` finds the package, a later call goes on where the last one stopped. Throws when the
+   * reader has no package to read (it then says so, so the agent can turn pages with browser_save_pages instead) or
+   * when the reader's session is over. Without it browser_save_book is not offered.
+   */
+  readBook?(userId: string, profile: string, request: BookReadRequest, signal: AbortSignal): Promise<BookReadBatch>;
+  /**
    * Optional: runs the agent's own script in the open page (browser_run_js). `code` is the body of an async
    * function: it may await and returns its result, which must come back as JSON. `frames` "all" runs it in
    * every frame of the page too. Without it browser_run_js is not offered.
@@ -312,6 +320,25 @@ export interface ScriptResult {
   title: string;
   /** One per frame it ran in (only the page itself with frames "main"): its result, or why it failed. */
   results: { frame: string; result?: unknown; error?: string }[];
+}
+
+export interface BookReadRequest {
+  start: boolean;
+  /** At most this many chapter files in this batch (the host may stop sooner, to answer in time). */
+  sections: number;
+}
+
+export interface BookReadBatch {
+  /** The reader page. */
+  url: string;
+  /** The book's title, from its package (or the reader page's title). */
+  title: string;
+  /** Chapter files in the book's reading order (its spine). */
+  total: number;
+  /** This batch, in reading order: each chapter file as Markdown, with its page markers when the book has them. */
+  sections: { index: number; title: string; markdown: string; images: number }[];
+  /** Every chapter file has been read. */
+  end: boolean;
 }
 
 /** How browser_save_pages gets to the next page. */

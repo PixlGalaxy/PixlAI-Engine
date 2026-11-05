@@ -10,6 +10,7 @@ appears only when you pass the port it needs:
 | | `fetcher: FetchPort` | `web_fetch`, and with a `workspace` also `web_download` |
 | browser | `browser: BrowserPort` (+ optional `browserPolicy`) | `browser_open`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_press`, `browser_scroll`, `browser_back`, `browser_screenshot`, `browser_close` |
 | | `browser.readPages` + `workspace` | `browser_save_pages` ([below](#saving-a-long-text-browser_save_pages)) |
+| | `browser.readBook` + `workspace` | `browser_save_book` ([below](#saving-an-e-book-from-its-readers-files-browser_save_book)) |
 | | `browser.evaluate` | `browser_run_js` ([below](#the-agents-own-scripts-browser_run_js)) |
 
 ```ts
@@ -113,6 +114,8 @@ interface BrowserPort {
   read?(userId, url, signal): Promise<BrowserPage>;
   // Optional: the open page's text as Markdown, page after page, one batch per call (browser_save_pages).
   readPages?(userId, profile, request: PageReadRequest, signal): Promise<PageReadBatch>;
+  // Optional: the e-book the open reader shows, from its own EPUB files, a batch of chapters per call (browser_save_book).
+  readBook?(userId, profile, request: BookReadRequest, signal): Promise<BookReadBatch>;
   // Optional: the agent's own script in the open page (browser_run_js).
   evaluate?(userId, profile, request: ScriptRequest, signal): Promise<ScriptResult>;
 }
@@ -306,6 +309,65 @@ writes headings, lists, quotes, code and tables as Markdown.
 
 The tool is offered only when the port has `readPages` and the engine has a `workspace`. The text is the user's own
 copy, for their own study: keep it in their files, out of anything shared.
+
+## Saving an e-book from its reader's files: browser_save_book
+
+Most online textbook readers (McGraw Hill Connect, VitalSource, Cengage, RedShelf, Kortext...) do not draw a book page
+by page from scratch: they load it as an **EPUB**, a package file (`*.opf`) listing the chapters in reading order (the
+*spine*) and one XHTML file per chapter or page. `browser_save_book` reads those files, in that order, **inside the
+reader with its own session**, and writes them into one Markdown file with the chapter titles and the printed book's
+page numbers (`[Page 12]`, where they fall). It does not depend on how the reader paginates, renders or hides its text,
+so it is faster and more complete than turning pages with `browser_save_pages`, and the model only gets back the path,
+the chapter count and the word count.
+
+The agent opens the book so the reader shows one of its pages (for a tool reached from an LMS, its launch first), then:
+
+```ts
+browser_save_book({
+  path: 'MAN 3025/Canvas/Management (textbook).md', // .md is added if missing; replaced if it exists
+  rag: 'MAN 3025 textbook',                          // optional: index the file when done
+});
+```
+
+**It keeps only a book.** Before the file is kept or indexed, `BookTextCheck` reads what came back: at least 1,500 words,
+15 paragraphs of prose, and paragraphs that differ from each other (60 % distinct). A reader's chrome ("Contents ·
+Next · Page 3 of 359"), a cover or a sample fails that, and so do chapters that are only pictures: then the file is
+deleted, nothing is indexed and the tool says why. A reading cut short (the session ended mid-book) is deleted too, so
+half a book never looks like a whole one in the files or the RAG. The saved file's `Source:` line has the reader's
+host and path only: a reader's address can carry its session in the query string.
+
+**It does not get around anything.** The files are the ones the reader already loads for the user. A book whose files
+are encrypted (DRM, `META-INF/encryption.xml`) is reported, not decrypted; the agent can still turn the pages with
+`browser_save_pages`, which reads what the reader shows. Reading files the reader loads clicks nothing, so it runs
+without asking under any `BrowserPolicy`.
+
+**When it cannot**, the error says what to do next: no EPUB among what the reader loads → `browser_save_pages`; the
+reader's session ended (its files answer 401/403) → open the book again and call again.
+
+**The host's side** is `readBook`, one batch of chapter files per call:
+
+```ts
+interface BookReadRequest {
+  start: boolean;   // true: find the book in the open reader; false: go on where the last batch stopped
+  sections: number; // at most this many chapter files in this batch
+}
+interface BookReadBatch {
+  url: string;      // the reader page
+  title: string;    // the book's title, from its package
+  total: number;    // chapter files in the spine
+  sections: { index: number; title: string; markdown: string; images: number }[];
+  end: boolean;     // every chapter file has been read
+}
+```
+
+The StudyHawk sandbox runner finds the package among what the page and its frames loaded (`performance` resource
+entries and the frames' own addresses): a loaded `*.opf`, else `META-INF/container.xml` and the usual package names
+(`content.opf`, `OEBPS/content.opf`...) folder by folder up from the chapters. It fetches each file with
+`fetch(url, { credentials: 'include' })` **from the frame of that file's site**, so the reader's cookies go with it
+(a request from outside the browser often gets 403), falls back to the browser context's own cookies, and, for CDNs
+that sign a whole book folder in the query string (CloudFront, Akamai), reuses the signature the reader's own
+requests carried. Chapters are converted to Markdown in the page with `DOMParser`: headings, paragraphs, lists, tables
+row by row, page-break markers; no scripts, styles or `<nav>`.
 
 ## The agent's own scripts: browser_run_js
 

@@ -2,6 +2,13 @@
 
 All notable changes to PixlAI-Engine. Every breaking change is listed under **Breaking**.
 
+## 1.6.0 (2026-11-04)
+
+### Added
+
+- **`browser_save_book`: a whole e-book from its reader's own files.** Most online textbook readers (McGraw Hill Connect, VitalSource, Cengage, RedShelf, Kortext...) load the book as an EPUB. The tool reads its chapter files in reading order, inside the reader with its session, into one Markdown file with chapter titles and page numbers, and optionally into a RAG. Before keeping the file it checks that the text is a book (enough words, prose paragraphs that differ from each other), not the reader's menus or pages drawn as pictures; otherwise, and when a reading is cut short, nothing is kept or indexed. Encrypted (DRM) books are reported, not decrypted. The saved source keeps no query string. Runs without asking: it reads files the reader already loads and clicks nothing. See [Saving an e-book from its reader's files](docs/code-web-browser.md#saving-an-e-book-from-its-readers-files-browser_save_book).
+- **`BrowserPort.readBook(userId, profile, request, signal)`** (optional), with `BookReadRequest` and `BookReadBatch`. `browserSaveBook` and `BookTextCheck` are exported.
+
 ## 1.5.0 (2026-11-04)
 
 ### Added

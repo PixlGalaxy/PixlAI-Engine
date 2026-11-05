@@ -16,7 +16,7 @@ export { DISPLAY_TOOLS, showHtml } from './tools/display.js';
 export { questionsAsText } from './tools/core.js';
 export { SearchChain, type SearchChainOptions, type SearchProvider } from './web/search-chain.js';
 export { htmlToText, decodeEntities } from './web/html.js';
-export { BROWSER_TOOLS, browserRunJs, browserSavePages } from './browser/tools.js';
+export { BookTextCheck, BROWSER_TOOLS, browserRunJs, browserSaveBook, browserSavePages } from './browser/tools.js';
 export { browserActionRisk, findPersonalData, formSummary, personalDataGate, programRisk, scriptRisk, siteOf } from './browser/risk.js';
 export { chunkPages, ragId, UserRags, type RagManifest, type RagSource, type Chunk } from './rag/store.js';
 export { CRON_TOOLS, SCHEDULED_RUN_NOTE } from './cron/tools.js';
