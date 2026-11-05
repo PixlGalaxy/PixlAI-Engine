@@ -65,6 +65,8 @@ Everything `pixlai-engine` exports, grouped by what you use it for. Types are Ty
 | `browserActionRisk(action, element)`, `formSummary(element)` | The routine/sensitive reading of a browser action, and what a form would send (as approvals show it). |
 | `findPersonalData(text, values)`, `personalDataGate(ctx, text, what)` | Whether a URL or query carries one of the user's values, and the gate the web and browser tools use for it. |
 | `browserSavePages` | `browser_save_pages`: a long text read in the browser, page after page, into a Markdown file (and a RAG). Added when the browser has `readPages` and there is a workspace. [Code, web and browser](code-web-browser.md#saving-a-long-text-browser_save_pages) |
+| `browserSaveBook` | `browser_save_book`: the e-book open in a reader, from its own EPUB files in reading order, into a Markdown file (and a RAG), kept only when it reads like a book. Added when the browser has `readBook` and there is a workspace. [Code, web and browser](code-web-browser.md#saving-an-e-book-from-its-readers-files-browser_save_book) |
+| `BookTextCheck` | What `browser_save_book` uses to tell a book from a reader's menus: words, prose paragraphs and how many differ. |
 | `wrapUntrusted(source, text)`, `steerContent(text)` | The wrappers for third-party text and for steers. [Security](security.md) |
 
 ## Delegation

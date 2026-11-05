@@ -4,6 +4,9 @@ import {
   htmlToText,
   SearchChain,
   InMemoryWorkspace,
+  UserRags,
+  type BookReadBatch,
+  type BookReadRequest,
   type BrowserAction,
   type BrowserPage,
   type BrowserPolicy,
@@ -410,6 +413,79 @@ test('browser_save_pages: one approval for the whole reading on an unknown site;
   await agent.run({ runId: 'r2', model: model(q), history: [user('save it')], sink });
   assert.match(lastTool(q), /shows its pages as pictures/);
   assert.equal(await workspace.stat('u1', 'Books/C.md'), null, 'nothing written');
+});
+
+// ------------------------------------------------------------------ saving a book from its reader's files
+
+/** Real prose: paragraphs long enough and different from each other. */
+const TOPICS = ['planning', 'organizing', 'leading', 'controlling', 'motivation', 'teamwork', 'ethics', 'strategy', 'budgets', 'hiring', 'feedback', 'innovation'];
+const prose = (chapter: number, n: number) =>
+  Array.from({ length: n }, (_, i) => `Managers who study ${TOPICS[(chapter + i) % TOPICS.length]} and ${TOPICS[(chapter * 3 + i * 5) % TOPICS.length]} learn why ${TOPICS[(i * 7 + chapter) % TOPICS.length]} matters when a company grows, with an example from section ${chapter}.${i} about ${TOPICS[(chapter * i) % TOPICS.length]}.`).join('\n\n');
+
+/** A reader with an EPUB: `chapters` come back a batch at a time; `fail` throws on that batch. */
+class EpubBrowser extends FakeBrowser {
+  chapters: { title: string; markdown: string; images: number }[] = [];
+  requests: BookReadRequest[] = [];
+  fail: number | null = null;
+  next = 0;
+  async readBook(_u: string, _p: string, request: BookReadRequest): Promise<BookReadBatch> {
+    this.requests.push(request);
+    if (this.requests.length - 1 === this.fail) throw new Error("The reader's session ended (its files answered 403): open the book again");
+    if (request.start) this.next = 0;
+    const sections = this.chapters.slice(this.next, this.next + request.sections).map((c, i) => ({ index: this.next + i, ...c }));
+    this.next += sections.length;
+    return { url: 'https://reader.example/book/9?session=secret', title: 'Management', total: this.chapters.length, sections, end: this.next >= this.chapters.length };
+  }
+}
+
+test('browser_save_book: the whole book, in reading order, to a Markdown file and a RAG; the session never in the file', async () => {
+  const browser = new EpubBrowser();
+  browser.chapters = Array.from({ length: 12 }, (_, i) => ({ title: `Chapter ${i + 1}`, markdown: prose(i + 1, 8), images: 0 }));
+  await browser.open('u1', 'default', 'https://reader.example/book/9');
+  const workspace = new InMemoryWorkspace();
+  const { agent, stores, sink } = setup({ browser, browserPolicy: policy, workspace, embeddings: new Words() });
+  const p = new ScriptedProvider([() => toolCall('browser_save_book', { path: 'Courses/Management', rag: 'MAN 3025 textbook' }, 'a'), () => text('saved')]);
+  await agent.run({ runId: 'r1', model: model(p), history: [user('save the textbook')], sink });
+
+  assert.equal(stores.runs.created.length, 0, 'reading the files the reader loads asks nothing');
+  const saved = (await workspace.read('u1', 'Courses/Management.md')).toString();
+  assert.match(saved, /^# Management\n\nSource: reader\.example\/book\/9\n/);
+  assert.doesNotMatch(saved, /secret/, "the reader's address keeps no query string");
+  assert.match(saved, /## Chapter 1\n\nManagers who study[\s\S]*section 1\.0 [\s\S]*## Chapter 12\n\nManagers who study[\s\S]*section 12\.7 /);
+  assert.deepEqual(browser.requests.map((r) => r.start), [true, false], 'chapters a batch at a time');
+  const result = lastTool(p);
+  assert.match(result, /"chapters": "12 of 12"/);
+  assert.match(result, /"rag": "man-3025-textbook"/);
+  assert.doesNotMatch(result, /Managers who study/, 'the text never comes back into the conversation');
+});
+
+test("browser_save_book keeps nothing that is not a book: the reader's menus, pictures, or half a book", async () => {
+  const workspace = new InMemoryWorkspace();
+  const run = async (browser: EpubBrowser, path: string) => {
+    await browser.open('u1', 'default', 'https://reader.example/book/9');
+    const { agent, sink } = setup({ browser, browserPolicy: policy, workspace, embeddings: new Words() });
+    const p = new ScriptedProvider([() => toolCall('browser_save_book', { path, rag: 'Book' }, 'a'), () => text('ok')]);
+    await agent.run({ runId: 'r', model: model(p), history: [user('save it')], sink });
+    return lastTool(p);
+  };
+
+  const menus = new EpubBrowser();
+  const chrome = Array.from({ length: 30 }, () => 'Contents Previous Next Search Highlights Notes Read aloud Text size Page 3 of 359 Close').join('\n\n');
+  menus.chapters = Array.from({ length: 5 }, (_, i) => ({ title: `Section ${i}`, markdown: chrome, images: 0 }));
+  assert.match(await run(menus, 'Books/Menus.md'), /repeats itself/);
+  assert.equal(await workspace.stat('u1', 'Books/Menus.md'), null);
+
+  const pictures = new EpubBrowser();
+  pictures.chapters = Array.from({ length: 20 }, (_, i) => ({ title: `Page ${i + 1}`, markdown: '', images: 1 }));
+  assert.match(await run(pictures, 'Books/Pictures.md'), /pictures/);
+  assert.equal(await workspace.stat('u1', 'Books/Pictures.md'), null);
+
+  const expired = new EpubBrowser();
+  expired.chapters = Array.from({ length: 25 }, (_, i) => ({ title: `Chapter ${i + 1}`, markdown: prose(i + 1, 4), images: 0 }));
+  expired.fail = 1;
+  assert.match(await run(expired, 'Books/Half.md'), /session ended/);
+  assert.equal(await workspace.stat('u1', 'Books/Half.md'), null, 'half a book is not left looking whole');
+  assert.equal(await new UserRags(workspace, 'u1').exists('book'), false, 'and nothing was indexed');
 });
 
 test('browser_save_pages is offered only with a workspace and a browser that reads page after page', () => {

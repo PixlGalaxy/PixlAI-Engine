@@ -456,6 +456,166 @@ export const browserSavePages = defineTool<SaveArgs>({
   },
 });
 
+/** browser_save_book: chapter files per batch, and the limits browser_save_pages has. */
+const BOOK_BATCH = 10;
+const BOOK_MAX_BYTES = 40 * 1024 * 1024;
+
+/** What makes saved text a book and not the reader around it, checked before the file is kept or indexed. */
+const BOOK_MIN_WORDS = 1500;
+const BOOK_MIN_PARAGRAPHS = 15;
+/** Paragraphs of a real book differ; a reader's chrome (Next, Contents, page 3 of 359) repeats. */
+const BOOK_MIN_DISTINCT = 0.6;
+const PROSE_WORDS = 12;
+
+/** Running count of what was saved, to tell a book from the reader's menus without holding the book in memory. */
+export class BookTextCheck {
+  words = 0;
+  paragraphs = 0;
+  images = 0;
+  private distinct = new Set<string>();
+
+  add(markdown: string, images = 0): void {
+    this.images += images;
+    for (const block of markdown.split(/\n{2,}/)) {
+      const text = block.replace(/^#+\s*/, '').trim();
+      const words = text.split(/\s+/).filter(Boolean).length;
+      this.words += words;
+      if (block.trimStart().startsWith('#') || words < PROSE_WORDS) continue;
+      this.paragraphs++;
+      if (this.distinct.size < 50_000) this.distinct.add(text.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').slice(0, 300));
+    }
+  }
+
+  /** Null when it reads like a book; otherwise why not, for the agent. */
+  problem(): string | null {
+    const distinct = this.paragraphs ? Math.min(this.distinct.size, this.paragraphs) / this.paragraphs : 0;
+    if (this.words >= BOOK_MIN_WORDS && this.paragraphs >= BOOK_MIN_PARAGRAPHS && distinct >= BOOK_MIN_DISTINCT) return null;
+    if (this.paragraphs < BOOK_MIN_PARAGRAPHS && this.images > this.paragraphs) {
+      return 'The book\'s chapters are pictures (scanned or drawn pages), not text, so there is nothing to save or index. Tell the student; do not retry.';
+    }
+    if (this.paragraphs >= BOOK_MIN_PARAGRAPHS && distinct < BOOK_MIN_DISTINCT) {
+      return 'What came back repeats itself (the reader\'s menus and page counters, not the book). Nothing was kept.';
+    }
+    return `Only ${this.words} words of text came back, too little for a book (a cover, a menu or a sample). Nothing was kept.`;
+  }
+}
+
+/** Where a saved book came from, without the query string: a reader's address can carry its session. */
+function sourceOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname}`;
+  } catch {
+    return '';
+  }
+}
+
+type BookArgs = { path: string; rag?: string; profile?: string };
+
+export const browserSaveBook = defineTool<BookArgs>({
+  name: 'browser_save_book',
+  summary: "save the e-book open in a publisher's reader (McGraw Hill Connect, VitalSource...) as Markdown, chapter by chapter, and index it",
+  description:
+    "Save the whole e-book open in the browser from the reader's own book files: many online readers (McGraw Hill " +
+    'Connect, VitalSource, other EPUB readers) load the book as chapter files in a set order, and this reads them in that ' +
+    "order, inside the reader with the student's own session, into one Markdown file with the chapter titles and page " +
+    'numbers. It is faster and more complete than turning pages, and does not depend on how the reader draws them. Open ' +
+    'the book first (canvas_tool_open for a tool reached from Canvas, then the button that opens the reader, e.g. "Read" or ' +
+    '"Open eBook"), so the reader shows a page of the book, then call this. Before keeping the file it checks that what ' +
+    'came back is the book (real paragraphs that differ from each other), not the reader\'s menus: if not, nothing is kept. ' +
+    'If it says the reader has no book files, use browser_save_pages to turn the pages instead. If it says the session ' +
+    'ended, open the book again from Canvas and call it again. rag: a collection (created if missing) the file is added ' +
+    "to when done. Only for the student's own study: the file stays in their files.",
+  parameters: {
+    type: 'object',
+    properties: {
+      path: { type: 'string', description: 'Markdown file to write, e.g. "Fall 2026/MAN 3025/Canvas/Management (textbook).md" (replaced if it exists)' },
+      rag: { type: 'string', description: 'Collection to add the file to when done, e.g. "MAN 3025 textbook" (created if missing)' },
+      profile: profileParam,
+    },
+    required: ['path'],
+  },
+  sideEffect: 'none',
+  untrusted: true,
+  mainAgentOnly: true,
+  timeoutMs: SAVE_TIMEOUT_MS,
+  // It reads files the open reader already loads, with its session, and clicks nothing.
+  async gate(args, ctx) {
+    return (await browserOf(ctx).currentUrl(ctx.user.id, profileOf(args.profile))) ? 'run' : { refuse: 'No page is open in this profile: open the book first' };
+  },
+  async run(args, ctx) {
+    const browser = browserOf(ctx);
+    if (!browser.readBook) throw new Error('Saving books is not available in this browser');
+    const ws = workspaceOf(ctx);
+    const profile = profileOf(args.profile);
+    const path = savePathOf(args.path);
+    assertVisible(ws, path);
+    if (args.rag && !ctx.embeddings) throw new Error('RAG is not available here (no embedding model): leave out rag');
+
+    const started = Date.now();
+    const check = new BookTextCheck();
+    let bytes = 0;
+    let sections = 0;
+    let total = 0;
+    let end = false;
+    let first = true;
+    let source = { url: '', title: '' };
+    try {
+      while (!end) {
+        const batch = await browser.readBook(ctx.user.id, profile, { start: first, sections: BOOK_BATCH }, ctx.signal);
+        if (first) {
+          source = { url: batch.url, title: batch.title };
+          total = batch.total;
+          const head = `# ${batch.title || 'Saved book'}\n\nSource: ${sourceOf(batch.url)}\nSaved: ${ctx.clock.now().toISOString().slice(0, 10)}\n\n`;
+          await ws.write(ctx.user.id, path, head);
+          bytes += Buffer.byteLength(head);
+          first = false;
+        }
+        for (const section of batch.sections) {
+          const body = section.markdown.trim();
+          check.add(body, section.images);
+          if (!body) continue;
+          const titled = body.startsWith('#') || !section.title ? body : `## ${section.title}\n\n${body}`;
+          const text = `${titled}\n\n`;
+          await ws.write(ctx.user.id, path, text, { append: true });
+          bytes += Buffer.byteLength(text);
+        }
+        sections += batch.sections.length;
+        end = batch.end;
+        if (batch.sections.length === 0 && !end) throw new Error('The reader stopped giving chapters: open the book again and call again');
+        if (bytes > BOOK_MAX_BYTES || Date.now() - started > SAVE_BUDGET_MS) break;
+      }
+    } catch (err) {
+      // Half a book would look like a whole one in the files and the RAG: it goes.
+      if (!first) await ws.delete(ctx.user.id, path).catch(() => undefined);
+      throw err;
+    }
+    const problem = check.problem();
+    if (problem) {
+      await ws.delete(ctx.user.id, path).catch(() => undefined);
+      throw new Error(problem);
+    }
+    const result: Record<string, unknown> = {
+      saved: path,
+      title: source.title,
+      chapters: `${sections} of ${total}`,
+      words: check.words,
+      paragraphs: check.paragraphs,
+      characters: bytes,
+      ...(!end && { note: `Not finished (time or size limit): ${sections} of ${total} chapter files are in the file. Say which part is missing.` }),
+    };
+    if (args.rag) {
+      const name = String(args.rag).trim();
+      const rags = new UserRags(ws, ctx.user.id);
+      if (!(await rags.exists(ragId(name)))) {
+        await ragCreate.run({ name, description: `The book saved from ${source.url ? new URL(source.url).host : 'the browser'} into ${path}` }, ctx);
+      }
+      result.rag = { rag: ragId(name), ...((await ragAdd.run({ rag: ragId(name), paths: [path] }, ctx)) as Record<string, unknown>) };
+    }
+    return result;
+  },
+});
+
 /** browser_run_js: how long a script may run, and how much of its result the conversation gets. */
 const SCRIPT_TIMEOUT_MS = 60_000;
 const SCRIPT_MAX_TIMEOUT_MS = 120_000;
