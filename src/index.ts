@@ -1,3 +1,4 @@
+export { ENGINE_VERSION } from './version.js';
 export { createEngine, type Engine, type EngineOptions, type RunOptions, type SubagentRunOptions, type UserAgent } from './engine.js';
 export { backgroundReportMessage, helperModelsNote, type DelegateReport, type DelegateTask } from './agent/delegate.js';
 export * from './types.js';

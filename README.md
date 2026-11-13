@@ -23,8 +23,16 @@ interfaces ("ports").
 | **Lazy tool groups** | The model sees the everyday tools and loads the rest by group (`tools_load`) when a task needs them: half the tokens per step in StudyHawk. |
 | **Robust loop** | Step and token budgets, per-tool timeouts, retries of dropped model connections, context compaction at 75%. |
 
-It powers [StudyHawk](../README.md), but the folder is self-contained: copy
-`pixlai-engine/` into another project, implement the ports, and it works.
+It powers [StudyHawk](https://studyhawk.app), and works in any Node.js project: install it, implement the ports, and
+it works.
+
+## Install
+
+```bash
+npm install pixlai-engine
+```
+
+ESM only, Node.js 20.3 or newer. What changed in each release: [CHANGELOG](CHANGELOG.md).
 
 ## Documentation
 
@@ -192,6 +200,9 @@ npm install
 npm test        # node:test via tsx, no network
 npm run build   # dist/ with type declarations
 ```
+
+Releasing: add the version's section to CHANGELOG.md, then `npm version <patch|minor|major>` and
+`git push --follow-tags`. The tag publishes it to npm and makes the GitHub release.
 
 ## License
 

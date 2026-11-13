@@ -1,7 +1,27 @@
 {
   "name": "pixlai-engine",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "PixlAI-Engine: a multi-user agent engine with tools, steering, approvals, subagents and cron jobs. Storage and models are plugged in through ports.",
+  "keywords": [
+    "agent",
+    "llm",
+    "ai-agent",
+    "tool-calling",
+    "subagents",
+    "rag",
+    "cron",
+    "multi-user"
+  ],
+  "homepage": "https://github.com/PixlGalaxy/PixlAI-Engine#readme",
+  "bugs": {
+    "url": "https://github.com/PixlGalaxy/PixlAI-Engine/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PixlGalaxy/PixlAI-Engine.git"
+  },
+  "author": "Fabrizio Gamboa (PixlGalaxy)",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,25 +29,33 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "docs",
-    "README.md"
+    "CHANGELOG.md",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "version": "node scripts/write-version.mjs && git add src/version.ts",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "tsx": "^4.23.15",
     "typescript": "~7.0.2"
   },
-  "license": "SEE LICENSE IN LICENSE",
   "engines": {
     "node": ">=20.3"
   }
