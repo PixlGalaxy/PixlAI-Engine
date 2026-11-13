@@ -2,6 +2,13 @@
 
 All notable changes to PixlAI-Engine. Every breaking change is listed under **Breaking**.
 
+## 1.7.0 (2026-11-13)
+
+### Added
+
+- **Published on npm.** PixlAI-Engine now has its own repository, [PixlGalaxy/PixlAI-Engine](https://github.com/PixlGalaxy/PixlAI-Engine), and is installed with `npm install pixlai-engine` instead of being linked or copied as a folder. Each version is published from its tag with npm provenance.
+- **`ENGINE_VERSION`**: the version of the engine in use, exported from the package root, for hosts that show it or check it against the latest one (`https://registry.npmjs.org/pixlai-engine/latest`). `pixlai-engine/package.json` can be imported too.
+
 ## 1.6.0 (2026-11-04)
 
 ### Added

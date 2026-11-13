@@ -4,23 +4,17 @@ This page takes you from an empty project to an agent that answers a message, ca
 
 ## Install
 
-PixlAI-Engine is a local package with no runtime dependencies. It is ESM only and needs Node.js 20.3 or newer (it uses `AbortSignal.any`).
-
-Build it once:
+PixlAI-Engine has no runtime dependencies. It is ESM only and needs Node.js 20.3 or newer (it uses `AbortSignal.any`).
 
 ```bash
-cd pixlai-engine
-npm install
-npm run build        # writes dist/ with type declarations
+npm install pixlai-engine
 ```
 
-Then use it from your project in one of two ways:
+To work on the engine and a project that uses it at the same time, link your clone instead of the published version:
 
 ```bash
-# 1. Link the folder (the path is relative to your project)
-npm install ../pixlai-engine
-
-# 2. Or copy the pixlai-engine/ folder into your repository and import from it
+cd PixlAI-Engine && npm install && npm run build && npm link
+cd ../your-project && npm link pixlai-engine   # npm run dev in the engine rebuilds dist/ as you edit
 ```
 
 Everything is imported from the package root:

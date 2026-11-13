@@ -1,0 +1,51 @@
+name: Release
+
+# Pushing a tag vX.Y.Z publishes that version to npm (with provenance) and makes a GitHub release with its CHANGELOG
+# section. Make the tag with `npm version <patch|minor|major>`: it bumps package.json, writes src/version.ts and tags.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write # the GitHub release
+  id-token: write # npm provenance, and trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          # npm 11.5 or newer (Node.js 24) publishes with trusted publishing, without a token.
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: The tag, package.json and ENGINE_VERSION agree
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          SRC="$(sed -n "s/.*ENGINE_VERSION = '\(.*\)'.*/\1/p" src/version.ts)"
+          echo "tag $TAG, package.json $PKG, src/version.ts $SRC"
+          [ "$TAG" = "$PKG" ] && [ "$TAG" = "$SRC" ]
+          grep -q "^## $TAG " CHANGELOG.md || { echo "CHANGELOG.md has no '## $TAG' section"; exit 1; }
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Publish to npm
+        # With trusted publishing set up on npmjs.com no token is needed; otherwise the NPM_TOKEN secret is used.
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: GitHub release with the changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          awk -v v="$TAG" '$0 ~ "^## "v" " {on=1; next} on && /^## / {exit} on' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
