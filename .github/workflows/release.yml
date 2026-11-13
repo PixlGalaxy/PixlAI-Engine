@@ -38,7 +38,14 @@ jobs:
 
       - name: Publish to npm
         # With trusted publishing set up on npmjs.com no token is needed; otherwise the NPM_TOKEN secret is used.
-        run: npm publish
+        # A version already on npm (published by hand, as the first one was) is left alone: only the release is made.
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$(npm view "pixlai-engine@$TAG" version 2>/dev/null)" = "$TAG" ]; then
+            echo "pixlai-engine@$TAG is already on npm"
+          else
+            npm publish
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
